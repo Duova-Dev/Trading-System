@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 tungstenite = "0.10.1"
 url = "2.1.1"
+json = "0.12.4"

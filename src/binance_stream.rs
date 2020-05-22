@@ -5,11 +5,18 @@
 pub mod interface {
     use url::Url;
     use tungstenite::{connect, Message};
+    use std::sync::mpsc;
+    use std::sync::mpsc::{Sender, Receiver};
+    use std::thread;
 
-    pub fn test_tungstenite(address: &str) {
+    pub fn live_trade_stream(stream_name: &str, tx: &Sender<String>) {
+
+        let binance_base_endpoint = "wss://stream.binance.com:9443";
+        
+        let access_url = format!("{}/ws/{}", binance_base_endpoint, stream_name);
 
         let (mut socket, response) = 
-            connect(Url::parse(address).unwrap()).expect("Can't connect.");
+            connect(Url::parse(&access_url).unwrap()).expect("Can't connect.");
         
         println!("Connected to the server");
         println!("Response HTTP code: {}", response.status());
@@ -32,7 +39,9 @@ pub mod interface {
             .unwrap();
         loop {
             let msg = socket.read_message().expect("Error reading message");
-            println!("Received: {}", msg);
+            let msg_string = format!("{}", msg);
+            //println!("Received: {}", msg_string);
+            tx.send(msg_string).unwrap();
         }
     }
 }
