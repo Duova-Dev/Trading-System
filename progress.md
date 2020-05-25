@@ -8,6 +8,8 @@ What has been done, what is being done, what must be done
 
 ## What is being done
 - Verify REST calls to order interface
+- Get test capital into binance
+    - On 7 day hold on coinbase
 
 ## What must be done
 - Implement separation of API keys and code
