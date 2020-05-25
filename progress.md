@@ -15,4 +15,3 @@ What has been done, what is being done, what must be done
     - Market making
     - Simple mean reversion
 - Separation of system and algorithm code
--  
