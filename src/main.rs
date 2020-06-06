@@ -5,29 +5,27 @@ use crate::binance_stream::interface;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
-use std::time::Duration;
 use json;
 use colour;
 use csv::Writer;
 use std::fs::File;
-use std::io::prelude::*;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     // thread to pull live trade data from binance
-    let trades_thread = thread::spawn(move || {
+    let _trades_thread = thread::spawn(move || {
         interface::live_trade_stream("btcusdt@trade", &tx);
     });
 
     // create csv file
-    let mut file = File::create("data/10minutechunk.csv")?;
+    File::create("data/10minutechunk.csv")?;
 
     let mut wtr = Writer::from_path("data/10minutechunk.csv")?;
     wtr.write_record(&["timestamp", "price,", "quantity", "buyermm"])?;
 
-    let mut counter = 0;
+    let mut _counter = 0;
     let mut delta_time: u64;
     let mut initial_time: u64 = 0;
     let mut first_run_occured = false;
@@ -59,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             trade["m"].to_string(),
         ])?;
 
-        counter += 1;
+        _counter += 1;
         println!("delta_time: {}", delta_time);
         if delta_time >= 600000 {
             break;

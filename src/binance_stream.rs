@@ -5,9 +5,7 @@
 pub mod interface {
     use url::Url;
     use tungstenite::{connect, Message};
-    use std::sync::mpsc;
     use std::sync::mpsc::{Sender, Receiver};
-    use std::thread;
 
     pub fn live_trade_stream(stream_name: &str, tx: &Sender<String>) {
 
