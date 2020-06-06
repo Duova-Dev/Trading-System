@@ -9,6 +9,8 @@ use std::time::Duration;
 use json;
 use colour;
 use csv::Writer;
+use std::fs::File;
+use std::io::prelude::*;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,6 +20,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trades_thread = thread::spawn(move || {
         interface::live_trade_stream("btcusdt@trade", &tx);
     });
+
+    // create csv file
+    let mut file = File::create("data/10minutechunk.csv")?;
 
     let mut wtr = Writer::from_path("data/10minutechunk.csv")?;
     wtr.write_record(&["timestamp", "price,", "quantity", "buyermm"])?;
