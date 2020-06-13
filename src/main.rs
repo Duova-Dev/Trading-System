@@ -5,16 +5,9 @@ use crate::binance_stream::interface;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
-use std::fs::File;
-use std::io::prelude::*;
 use serde_json;
-use std::any::type_name;
 use csv::Writer;
 
-
-fn type_of<T>(_: T) -> &'static str {
-    type_name::<T>()
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx): (Sender<String>, Receiver<String>) = mpsc::channel();

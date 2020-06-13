@@ -2,12 +2,11 @@
 
 pub mod interface {
     use curl::easy::Easy;
-    use std::io::{stdout, Write};
-    use std::sync::mpsc::{Receiver, Sender};
+    use std::io::{Write};
+    use std::sync::mpsc::{Sender};
     use tungstenite::{connect, Message};
     use url::Url;
     use std::str;
-    use serde_json;
     use std::fs::File;
 
 
