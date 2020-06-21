@@ -1,0 +1,2 @@
+cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/jimmykang/Documents/ad_astra/duova/trading_system/trading_system/target/rls/debug/build/typenum-2f61437ae9b6eb9a/out/consts.rs
+cargo:rustc-env=TYPENUM_BUILD_OP=/Users/jimmykang/Documents/ad_astra/duova/trading_system/trading_system/target/rls/debug/build/typenum-2f61437ae9b6eb9a/out/op.rs

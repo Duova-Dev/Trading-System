@@ -1,0 +1,13 @@
+/Users/jimmykang/Documents/ad_astra/duova/trading_system/trading_system/target/rls/debug/deps/url-f117072b4931ce36.rmeta: /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/lib.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/host.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/origin.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/parser.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/path_segments.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/query_encoding.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/slicing.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/form_urlencoded.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/quirks.rs
+
+/Users/jimmykang/Documents/ad_astra/duova/trading_system/trading_system/target/rls/debug/deps/url-f117072b4931ce36.d: /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/lib.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/host.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/origin.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/parser.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/path_segments.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/query_encoding.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/slicing.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/form_urlencoded.rs /Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/quirks.rs
+
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/lib.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/host.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/origin.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/parser.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/path_segments.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/query_encoding.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/slicing.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/form_urlencoded.rs:
+/Users/jimmykang/.cargo/registry/src/github.com-1ecc6299db9ec823/url-2.1.1/src/quirks.rs:
