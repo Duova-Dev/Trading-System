@@ -32,22 +32,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (prompt_tx, prompt_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel(); 
 
     // thread to pull live webstream data from binance
-    let _trades_thread = thread::spawn(move || {
+    let _trades_thread = thread::Builder::new().name("trade_data_thread".to_string()).spawn (move || {
         interface::live_binance_stream("btcusdt@trade", &trade_tx, &init_tx);
     });
 
-    let _depth_thread = thread::spawn(move || {
+    let _depth_thread = thread::Builder::new().name("depth_data_thread".to_string()).spawn (move || {
         interface::live_binance_stream("btcusdt@depth@100ms", &depth_tx, &init_tx2);
     });
 
     // spawn action thread
-    let _action_thread = thread::spawn(move || {
+    let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
         let mut running = false;
         let mut settings = HashMap::new();
         settings.insert("max_lookback_ms", 5 * 60 * 1000);
 
         // main loop
         loop {
+            // system time 
+            let now_instant = SystemTime::now();
+            let epoch_now = now_instant
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards.");
+            let time_now = u64::try_from(epoch_now.as_millis()).unwrap();
+
             // check if command command
             let mut command_good = true;
             let command = match cmd_rx.try_recv() {
@@ -63,20 +70,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if command == "start" {
                     running = true;
                 }
+                else if command == "testaccountinfo" {
+                    interface::binance_rest_api("get_accountinfo", time_now);
+                }
             }
 
             // main trade logic
             if running {
-                // system time 
-                let now_instant = SystemTime::now();
-                let epoch_now = now_instant
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Time went backwards.");
-                let time_now = u64::try_from(epoch_now.as_millis()).unwrap();
-
                 // portfolio management
                 // hashmap of algo id : capital allocation
-            let mut capital_allocation = HashMap::new();
+                let mut capital_allocation = HashMap::new();
                 capital_allocation.insert(1, 0.5);
                 capital_allocation.insert(2, 0.5);
 
