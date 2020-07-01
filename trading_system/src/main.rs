@@ -1,8 +1,7 @@
 mod binance_interface;
 mod trading_strategies;
+mod binance_structs;
 
-use crate::binance_interface::interface;
-use crate::trading_strategies::strategies;
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
@@ -10,8 +9,10 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use std::convert::TryFrom;
-
+use serde::{Deserialize};
 use serde_json::{Value};
+use binance_structs::{ReceivedData, OccuredTrade};
+
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     
@@ -19,25 +20,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (init_tx, init_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
     let init_tx2 = init_tx.clone();
 
+    // tx/rx for quit
+    let (quit_tx, quit_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+
+    // tx/rx for things to print
+    let (print_tx, print_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+
     // tx/rx for trade data line
-    let (trade_tx, trade_rx): (Sender<Value>, Receiver<Value>) = mpsc::channel();
+    let (trade_tx, trade_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
 
     // tx/rx for depth map update line
-    let (depth_tx, depth_rx): (Sender<Value>, Receiver<Value>) = mpsc::channel();
+    let (depth_tx, depth_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
 
     // tx/rx for command lines
     let (cmd_tx, cmd_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
-    // tx/rx for new prompt
-    let (prompt_tx, prompt_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel(); 
-
     // thread to pull live webstream data from binance
     let _trades_thread = thread::Builder::new().name("trade_data_thread".to_string()).spawn (move || {
-        interface::live_binance_stream("btcusdt@trade", &trade_tx, &init_tx);
+        binance_interface::live_binance_stream("btcusdt@trade", &trade_tx, &init_tx, binance_structs::StreamType::Trade);
     });
 
     let _depth_thread = thread::Builder::new().name("depth_data_thread".to_string()).spawn (move || {
-        interface::live_binance_stream("btcusdt@depth@100ms", &depth_tx, &init_tx2);
+        binance_interface::live_binance_stream("btcusdt@depth@100ms", &depth_tx, &init_tx2, binance_structs::StreamType::Depth);
     });
 
     // spawn action thread
@@ -45,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut running = false;
         let mut settings = HashMap::new();
         settings.insert("max_lookback_ms", 5 * 60 * 1000);
+        let mut trades_in_window: Vec<OccuredTrade> = Vec::new();
 
         // main loop
         loop {
@@ -69,55 +74,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if command_good {
                 if command == "start" {
                     running = true;
-                }
-                else if command == "testaccountinfo" {
-                    interface::binance_rest_api("get_accountinfo", time_now);
+                } else if command == "newlistenkey" {
+                    binance_interface::binance_rest_api("new_listenkey", time_now);
+                } else if command == "displayaccountinfo" {
+                    println!("{}", binance_interface::binance_rest_api("get_accountinfo", time_now).to_string());
+                } else if command == "testping" {
+                    binance_interface::binance_rest_api("test_ping", time_now);
+                } else if command == "testtime" {
+                    binance_interface::binance_rest_api("test_time", time_now);
+                } else if command == "exchangeinfo" {
+                    binance_interface::binance_rest_api("exchange_info", time_now);
                 }
             }
 
-            // main trade logic
+            // main trade/pm logic
             if running {
                 // portfolio management
                 // hashmap of algo id : capital allocation
                 let mut capital_allocation = HashMap::new();
-                capital_allocation.insert(1, 0.5);
-                capital_allocation.insert(2, 0.5);
+                capital_allocation.insert(0, 1);
 
-                // receive market data(trading only for now)
+                // receive market data(trading only for now) and append to past list of trades
                 let mut trade_data_iter = trade_rx.try_iter();
-                let mut trades_in_window = Vec::new();
+                let mut new_trades : Vec<OccuredTrade> = Vec::new();
                 loop {
                     let next_data = trade_data_iter.next();
-                    if next_data != None {
+                    if !next_data.is_none() {
                         let trade = next_data.unwrap();
-                        trades_in_window.push(trade);
+                        let trade_to_push = trade.as_trade();
+                        new_trades.push(trade_to_push);
                     } else {
                         break;
                     }
                 }
+                trades_in_window.append(&mut new_trades);
+
 
                 // call algo if new trades received
-                let new_trades_received = trades_in_window.len() > 0;
+                let new_trades_received = new_trades.len() > 0;
                 if new_trades_received {
-                    // remove outdated trades
+                    // removed outdated trades
                     let mut i = 0;
                     let mut max_i = trades_in_window.len() - 1;
                     while i <= max_i {
-                        if trades_in_window[i]["E"].as_u64().unwrap() < time_now - settings["max_lookback_ms"] {
+                        if trades_in_window[i].trade_time < time_now - settings["max_lookback_ms"] {
                             trades_in_window.remove(i);
                             max_i -= 1;
+                        } else {
+                            i += 1;
                         }
-                        i += 1;
                     }
 
                     // feed trade data to algorithm
-                    strategies::master_strategy(vec![1], trades_in_window, time_now);
+                    trading_strategies::master_strategy(vec![1], &trades_in_window, time_now);
                 }
 
             }
 
-            // send all clear to prompt thread
-            prompt_tx.send(true).unwrap();
         }
 
     });
@@ -138,6 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // shell loop
     loop {
+
         // get command
         print!("Duova Capital CLI>>>");
         std::io::stdout().flush().unwrap();
@@ -161,25 +175,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.push(arg);
         }
 
-        if command == "quit" {
+        if command == "quit" || command == "exit" {
             break;
         }
         
         // send command to action thread
         cmd_tx.send(command.to_string()).unwrap();
-
-        // continue with the all-clear from the action thread
+        
+        // receive anything that should be printed and then print them
+        let mut print_iter = print_rx.try_iter();
         loop {
-            let received = match prompt_rx.recv() {
-                Ok(data) => data,
-                Err(e) => {
-                    false
-                }
-            };
-            if received {
+            let next_print = print_iter.next();
+            if next_print != None {
+                println!("{}", next_print.unwrap());
+            } else {
                 break;
             }
         }
+        
     }
     Ok(())
 }
