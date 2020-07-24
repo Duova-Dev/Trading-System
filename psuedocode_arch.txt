@@ -1,0 +1,23 @@
+*action thread*
+
+Keep a system clock(in milliseconds)
+end_time threshold
+
+init {
+	ping account info and sell to base currency(USDT)
+	
+}
+loop {
+	receive trades and input into trades_in_window vec
+	if time >= threshold:
+		process trades_in_window to generate OHLC
+		pass OHLC into all the trades to generate signals
+		PM logic to generate capital allocation
+			
+		interface with data_out to send orders
+		threshold += threshold_increment
+
+}
+
+
+*trades outgoing thread*

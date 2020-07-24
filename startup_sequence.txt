@@ -1,0 +1,3 @@
+1. run command 'selltousdt'
+    This command checks the balance of the account, and sells any asset that is not USDT into USDT. 
+    This allows the trading system to have a fresh start.
