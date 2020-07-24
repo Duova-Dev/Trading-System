@@ -33,7 +33,7 @@ fn sign_hmac256(key: &str, message: &str) -> String {
     return signature_str;
 }
 
-fn rest_get(api_key: &str, url: String, req_type: String) -> String { 
+fn rest_req(api_key: &str, url: String, req_type: String) -> String { 
     let client = reqwest::blocking::Client::new();
     let mut response_str = String::new();
     println!("url: {}", url);
@@ -50,6 +50,23 @@ fn rest_get(api_key: &str, url: String, req_type: String) -> String {
             .text().unwrap();
     }
     return response_str;
+}
+
+pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
+    // find keys
+    let mut key_file = File::open("../v0_1_0.key").unwrap();
+    let mut contents = String::new();
+    key_file.read_to_string(&mut contents);
+    let keys_json: Value = serde_json::from_str(&contents).unwrap();
+    let api_key = keys_json["api_key"].as_str().unwrap();
+    let secret_key = keys_json["secret_key"].as_str().unwrap();
+
+    let endpoint = "https://api.binance.us/api/v3/order?";
+    let message = request.to_string();
+    let generated_hmac = sign_hmac256(secret_key, &message);
+    let final_url = format!("{}{}&signature={}", endpoint, message, generated_hmac);
+    let raw_response_str = rest_req(api_key, final_url, "post".to_string());
+    return serde_json::from_str(&raw_response_str).unwrap();
 }
 
 pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
@@ -94,7 +111,7 @@ pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
         req_type = "get".to_string();
     }
 
-    let raw_response_str = rest_get(api_key, final_url, req_type.to_string());
+    let raw_response_str = rest_req(api_key, final_url, req_type.to_string());
     println!("raw_response_str: {}", raw_response_str);
     return serde_json::from_str(&raw_response_str).unwrap();
 }

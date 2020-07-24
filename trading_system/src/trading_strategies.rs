@@ -3,34 +3,35 @@
 use std::collections::HashMap;
 use serde_json::value::Value;
 use crate::binance_structs;
-use crate::binance_structs::{OccuredTrade, TradeOrder};
+use crate::binance_structs::{OccuredTrade};
 
 
-fn sma_reversion(timestamp: u64) -> Vec<binance_structs::TradeOrder> {
+fn sma_reversion(trades: &Vec<Vec<f64>>) -> i32 {
     println!("sma_reversion is running!");
-    let sample_order = binance_structs::TradeOrder::Market( binance_structs::MarketRequest {
-        symbol: "btcusdt".to_string(),
-        side: "BUY".to_string(),
-        timestamp: timestamp,
-        quantity: 1.0,
-    });
-    return vec![sample_order];
+
+    return 1;
 }
 
 pub fn master_strategy(
-    algos_to_run: Vec<u32>, 
-    trades_in_window: Vec<OccuredTrade>,
-    timestamp: u64, 
-) -> HashMap<u32, Vec<TradeOrder>> {
+    trades: &Vec<Vec<f64>>,
+) -> Vec<i32> {
+    /*
+        One function to call all the strategies that are needed.
+        Parameters:
+            trades: 
+                trades that are within the window required
+        Returns:
+            HashMap:
+                maps the ID of the algorithm to the result it returned.
+    */
 
-    let mut id_to_algo = HashMap::new();
-    id_to_algo.insert(0, sma_reversion);
-    id_to_algo[&0];
+    let mut strategies_list = Vec::new();
+    strategies_list.push(sma_reversion);
 
-    let mut orders_to_return = HashMap::new();
-    for algo_id in algos_to_run {
-        orders_to_return.insert(algo_id, id_to_algo[&algo_id](timestamp));
+    let mut signals = Vec::new();
+    for strategy in strategies_list {
+        signals.push(strategy(trades));
     }
 
-    return orders_to_return;
+    return signals;
 }

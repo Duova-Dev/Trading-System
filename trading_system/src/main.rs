@@ -46,10 +46,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // spawn action thread
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
+        // variables initialization
         let mut running = false;
         let mut settings = HashMap::new();
-        settings.insert("max_lookback_ms", 5 * 60 * 1000);
+        // period is 1 minute for now
+        settings.insert("ohlc_period", 60 * 1000);
+        settings.insert("max_lookback_ms", settings["ohlc_period"] * 24 * 60);
         let mut trades_in_window: Vec<OccuredTrade> = Vec::new();
+        let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
+
+        // time init
+        let now_instant = SystemTime::now();
+        let epoch_now = now_instant
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards.");
+        let time_threshold = u64::try_from(epoch_now.as_millis()).unwrap() + settings["ohlc_period"];
 
         // main loop
         loop {
@@ -84,16 +95,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     binance_interface::binance_rest_api("test_time", time_now);
                 } else if command == "exchangeinfo" {
                     binance_interface::binance_rest_api("exchange_info", time_now);
+                } else if command == "selltousdt" {
+                    // check account info and sells every asset to USDT
+                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
+                    println!("account_info: {}", account_info);
+                    
+                    let mut i = 0;
+                    loop {
+                        if account_info["balances"][i].is_null() {
+                            break;
+                        } else {
+                            println!("{}", account_info["balances"][i]);
+                            if account_info["balances"][i]["asset"] != "USDT" && account_info["balances"][i]["free"] != 0 {
+                                println!("Attempting to sell {} amount of {}...", account_info["balances"][i]["free"], account_info["balances"][i]["asset"]);
+                                let request = binance_structs::MarketRequest {
+                                    symbol: account_info["balances"][i]["asset"].to_string(), 
+                                    side: "SELL".to_string(), 
+                                    timestamp: time_now,
+                                    quantity: account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap()
+                                };
+                                let response = binance_interface::binance_trade_api(request);
+                                if let Some(field) = response.get("status") {
+                                    if field == "filled" {
+                                        println!("Order was filled.");
+                                    } else {
+                                        println!("Order was not filled. Status response: {}", field);
+                                    }
+                                } else {
+                                    println!("Something went wrong. Response was: {}", response);
+                                }
+                            }
+                        }
+                        i += 1;
+                    }
+                    
+                } else if command == "testtrade" {
+                    let request = binance_structs::MarketRequest {
+                        symbol: "ETHUSDT".to_string(), 
+                        side: "BUY".to_string(), 
+                        timestamp: time_now,
+                        quantity: 0.04
+                    };
+                    let response = binance_interface::binance_trade_api(request);
+                    println!("response: {}", response);
                 }
             }
 
             // main trade/pm logic
             if running {
-                // portfolio management
-                // hashmap of algo id : capital allocation
-                let mut capital_allocation = HashMap::new();
-                capital_allocation.insert(0, 1);
-
                 // receive market data(trading only for now) and append to past list of trades
                 let mut trade_data_iter = trade_rx.try_iter();
                 let mut new_trades : Vec<OccuredTrade> = Vec::new();
@@ -109,25 +158,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 trades_in_window.append(&mut new_trades);
 
-
-                // call algo if new trades received
-                let new_trades_received = new_trades.len() > 0;
-                if new_trades_received {
-                    // removed outdated trades
-                    let mut i = 0;
-                    let mut max_i = trades_in_window.len() - 1;
-                    while i <= max_i {
-                        if trades_in_window[i].trade_time < time_now - settings["max_lookback_ms"] {
-                            trades_in_window.remove(i);
-                            max_i -= 1;
-                        } else {
-                            i += 1;
+                if time_now >= time_threshold {
+                    // find ohlc of time period that just finished
+                    let mut close: f64 = 0.0;
+                    let mut open: f64 = 0.0;
+                    let mut high = f64::MIN;
+                    let mut low = f64::MAX;
+                    let mut volume: f64 = 0.0;
+                    for (i, trade) in trades_in_window.iter().enumerate() {
+                        if i == 0 {
+                            close = trade.price;
+                            high = trade.price;
+                            low = trade.price;
+                        } else if i == trades_in_window.len() - 1 {
+                            open = trade.price;
+                        } 
+                        if trade.price > high {
+                            high = trade.price;
                         }
+                        if trade.price < low {
+                            low = trade.price;
+                        }
+                        volume += trade.quantity;
                     }
 
-                    // feed trade data to algorithm
-                    trading_strategies::master_strategy(vec![1], &trades_in_window, time_now);
+                    // append to ohlc_history 
+                    let append_arr = vec![open, high, low, close, volume];
+                    ohlc_history.push(append_arr);
+
+                    // slice to relevant part
+                    let limit_len = (settings["max_lookback_ms"] / settings["ohlc_period"]) as usize;
+                    if ohlc_history.len() > limit_len {
+                        ohlc_history = ohlc_history[ohlc_history.len()-limit_len..].to_vec();
+                    }
+
+                    // portfolio management
+                    // hashmap of algo id : capital allocation
+                    let mut capital_allocation = HashMap::new();
+                    capital_allocation.insert(0, 1);
+                    
+                    // call master strategy
+                    let signals = trading_strategies::master_strategy(&ohlc_history);
+
+
                 }
+
 
             }
 

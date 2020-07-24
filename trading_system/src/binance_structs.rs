@@ -1,6 +1,7 @@
-
 use serde::{Serialize, Deserialize};
 use serde_json::{Value};
+
+// data structures
 
 pub enum ReceivedData {
     Trade(OccuredTrade),
@@ -31,31 +32,9 @@ pub struct OccuredTrade {
     pub ignore: bool
 }
 
-pub fn deserialize_trade(received_trade: Value) -> OccuredTrade {
-    // manual deserialization because serde's derive has incompatible dependencies
-    return OccuredTrade {
-        event_type: received_trade["e"].to_string(),
-        event_time: received_trade["E"].as_u64().unwrap(),
-        symbol: received_trade["s"].to_string(),
-        trade_id: received_trade["t"].as_u64().unwrap(),
-        price: received_trade["p"].as_f64().unwrap(),
-        quantity: received_trade["q"].as_f64().unwrap(),
-        buyer_id: received_trade["b"].as_u64().unwrap(),
-        seller_id: received_trade["a"].as_u64().unwrap(),
-        trade_time: received_trade["T"].as_u64().unwrap(),
-        buyermm: received_trade["m"].as_bool().unwrap(),
-        ignore: received_trade["M"].as_bool().unwrap(),
-    };
-}
-
 pub enum StreamType {
     Trade, 
     Depth
-}
-
-pub enum TradeOrder {
-    Limit(LimitRequest),
-    Market(MarketRequest),
 }
 
 pub struct LimitRequest {
@@ -68,10 +47,16 @@ pub struct LimitRequest {
 }
 
 pub struct MarketRequest {
-    symbol: String,
-    side: String,
-    timestamp: u64,
-    quantity: f64,
+    pub symbol: String,
+    pub side: String,
+    pub timestamp: u64,
+    pub quantity: f64,
+}
+
+impl MarketRequest {
+    pub fn to_string(self) -> String {
+        return format!("symbol={}&side={}&timestamp={}&quantity={}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
+    }
 }
 
 // below is not supported yet
@@ -97,4 +82,23 @@ struct TakeProfitLimitRequest {
     symbol: String,
     side: String,
     timestamp: u64,
+}
+
+// helper functions
+
+pub fn deserialize_trade(received_trade: Value) -> OccuredTrade {
+    // manual deserialization because serde's derive has incompatible dependencies
+    return OccuredTrade {
+        event_type: received_trade["e"].to_string(),
+        event_time: received_trade["E"].as_u64().unwrap(),
+        symbol: received_trade["s"].to_string(),
+        trade_id: received_trade["t"].as_u64().unwrap(),
+        price: received_trade["p"].as_str().unwrap().parse().unwrap(),
+        quantity: received_trade["q"].as_str().unwrap().parse().unwrap(),
+        buyer_id: received_trade["b"].as_u64().unwrap(),
+        seller_id: received_trade["a"].as_u64().unwrap(),
+        trade_time: received_trade["T"].as_u64().unwrap(),
+        buyermm: received_trade["m"].as_bool().unwrap(),
+        ignore: received_trade["M"].as_bool().unwrap(),
+    };
 }
