@@ -147,7 +147,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     println!("Initialization finished!");
-
     
     // shell loop
     loop {

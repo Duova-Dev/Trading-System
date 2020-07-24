@@ -1,0 +1,12 @@
+/Users/l-winston/Trading-System/target/debug/deps/tempfile-08b41b8171e426e3.rmeta: /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/lib.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/dir.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/error.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/mod.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/imp/mod.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/spooled.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/util.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/imp/unix.rs
+
+/Users/l-winston/Trading-System/target/debug/deps/tempfile-08b41b8171e426e3.d: /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/lib.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/dir.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/error.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/mod.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/imp/mod.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/spooled.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/util.rs /Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/imp/unix.rs
+
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/lib.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/dir.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/error.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/mod.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/imp/mod.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/spooled.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/util.rs:
+/Users/l-winston/.cargo/registry/src/github.com-1ecc6299db9ec823/tempfile-3.1.0/src/file/imp/unix.rs:
