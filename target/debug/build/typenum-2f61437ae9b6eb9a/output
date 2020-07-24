@@ -1,2 +1,0 @@
-cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/l-winston/Trading-System/target/debug/build/typenum-2f61437ae9b6eb9a/out/consts.rs
-cargo:rustc-env=TYPENUM_BUILD_OP=/Users/l-winston/Trading-System/target/debug/build/typenum-2f61437ae9b6eb9a/out/op.rs
