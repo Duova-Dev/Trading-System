@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let epoch_now = now_instant
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards.");
-        let time_threshold = u64::try_from(epoch_now.as_millis()).unwrap() + settings["ohlc_period"];
+        let mut time_threshold = u64::try_from(epoch_now.as_millis()).unwrap() + settings["ohlc_period"];
 
         // main loop
         loop {
@@ -200,14 +200,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // call master strategy
                     let signals = trading_strategies::master_strategy(&ohlc_history);
 
-
+                    time_threshold = time_now + settings["ohlc_period"];
                 }
-
-
             }
-
         }
-
     });
 
     // check if initialization complete
