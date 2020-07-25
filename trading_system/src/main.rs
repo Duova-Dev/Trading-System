@@ -19,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // tx/rx for init
     let (init_tx, init_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
     let init_tx2 = init_tx.clone();
+    let init_tx3 = init_tx.clone();
 
     // tx/rx for quit
     let (quit_tx, quit_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
@@ -32,16 +33,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // tx/rx for depth map update line
     let (depth_tx, depth_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
 
+    // tx/rx for klines update line
+    let (kline_tx, kline_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
+
     // tx/rx for command lines
     let (cmd_tx, cmd_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     // thread to pull live webstream data from binance
-    let _trades_thread = thread::Builder::new().name("trade_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("btcusdt@trade", &trade_tx, &init_tx, binance_structs::StreamType::Trade);
-    });
-
-    let _depth_thread = thread::Builder::new().name("depth_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("btcusdt@depth@100ms", &depth_tx, &init_tx2, binance_structs::StreamType::Depth);
+    let _klines_thread = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
+        binance_interface::live_binance_stream("ethusdt@kline_1m", &kline_tx, &init_tx3, binance_structs::StreamType::KLine);
     });
 
     // spawn action thread
@@ -144,19 +144,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // main trade/pm logic
             if running {
                 // receive market data(trading only for now) and append to past list of trades
-                let mut trade_data_iter = trade_rx.try_iter();
-                let mut new_trades : Vec<OccuredTrade> = Vec::new();
+                let mut kline_iter = kline_rx.try_iter();
                 loop {
-                    let next_data = trade_data_iter.next();
+                    let next_data = kline_iter.next();
                     if !next_data.is_none() {
-                        let trade = next_data.unwrap();
-                        let trade_to_push = trade.as_trade();
-                        new_trades.push(trade_to_push);
+                        let raw_kline = next_data.unwrap();
+                        let kline = raw_kline.as_kline();
+                        println!("current_time: {}, close_time: {}, closed: {}", time_now, kline.end_time, kline.closed);
                     } else {
                         break;
                     }
                 }
-                trades_in_window.append(&mut new_trades);
 
                 if time_now >= time_threshold {
                     // find ohlc of time period that just finished
@@ -213,7 +211,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if received == true {
             counter += 1;
         }
-        if counter >= 2 {
+        if counter >= 1 {
             break;
         }
     }

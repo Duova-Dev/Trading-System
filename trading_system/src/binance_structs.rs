@@ -5,6 +5,7 @@ use serde_json::{Value};
 
 pub enum ReceivedData {
     Trade(OccuredTrade),
+    KLine(KLineMinute),
     Value(Value)
 }
 
@@ -16,6 +17,27 @@ impl ReceivedData {
             panic!("ReceivedData could not be expressed as an OccuredTrade");
         }
     }
+
+    pub fn as_kline(self) -> KLineMinute {
+        if let ReceivedData::KLine(c) = self {
+            c
+        } else {
+            panic!("ReceivedData could not be expressed as an OccuredTrade");
+        }
+    }
+}
+
+pub struct KLineMinute {
+    pub start_time: u64, 
+    pub end_time: u64, 
+    pub symbol: String,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub quantity: f64,
+    pub num_trades: u64,
+    pub closed: bool,
 }
 
 pub struct OccuredTrade {
@@ -34,16 +56,8 @@ pub struct OccuredTrade {
 
 pub enum StreamType {
     Trade, 
-    Depth
-}
-
-pub struct LimitRequest {
-    symbol: String,
-    side: String,
-    timestamp: u64,
-    timeInForce: String,
-    quantity: f64,
-    price: u64,
+    Depth,
+    KLine
 }
 
 pub struct MarketRequest {
@@ -59,32 +73,22 @@ impl MarketRequest {
     }
 }
 
-// below is not supported yet
-struct StopLossRequest {
-    symbol: String,
-    side: String,
-    timestamp: u64,
-}
-
-struct StopLossLimitRequest {
-    symbol: String,
-    side: String,
-    timestamp: u64,
-}
-
-struct TakeProfitRequest {
-    symbol: String,
-    side: String,
-    timestamp: u64,
-}
-
-struct TakeProfitLimitRequest {
-    symbol: String,
-    side: String,
-    timestamp: u64,
-}
-
 // helper functions
+
+pub fn deserialize_kline(raw_kline: Value) -> KLineMinute {
+    KLineMinute {
+        start_time: raw_kline["k"]["t"].as_u64().unwrap(), 
+        end_time: raw_kline["k"]["T"].as_u64().unwrap(), 
+        symbol: raw_kline["k"]["s"].to_string(),
+        open: raw_kline["k"]["o"].as_str().unwrap().parse().unwrap(),
+        high: raw_kline["k"]["h"].as_str().unwrap().parse().unwrap(),
+        low: raw_kline["k"]["l"].as_str().unwrap().parse().unwrap(),
+        close: raw_kline["k"]["c"].as_str().unwrap().parse().unwrap(),
+        quantity: raw_kline["k"]["v"].as_str().unwrap().parse().unwrap(),
+        num_trades: raw_kline["k"]["n"].as_u64().unwrap(),
+        closed: raw_kline["k"]["x"].as_bool().unwrap()
+    }
+}
 
 pub fn deserialize_trade(received_trade: Value) -> OccuredTrade {
     // manual deserialization because serde's derive has incompatible dependencies

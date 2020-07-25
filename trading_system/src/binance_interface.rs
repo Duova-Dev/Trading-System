@@ -139,6 +139,11 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
     loop {
         let msg = socket.read_message().expect("Error reading message");
         let msg_string = format!("{}", msg);
+        if msg_string.chars().next().unwrap() != '{' {
+            println!("Detected non valid json: {}", msg_string);
+            continue;
+        }
+        println!("msg_string: {}", msg_string);
         let parsed_msg: Value = serde_json::from_str(&msg_string).unwrap();
         match stream_type {
             binance_structs::StreamType::Trade => {
@@ -148,6 +153,11 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
             binance_structs::StreamType::Depth => {
                 data_tx.send(binance_structs::ReceivedData::Value(parsed_msg)).unwrap();
             }
+            binance_structs::StreamType::KLine => {
+                println!("parsed_msg: {}", parsed_msg);
+                let constructed_kline = binance_structs::deserialize_kline(parsed_msg);
+                data_tx.send(binance_structs::ReceivedData::KLine(constructed_kline)).unwrap();
+            } 
         }
     }
 }
