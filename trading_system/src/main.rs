@@ -1,17 +1,18 @@
 mod binance_interface;
 mod trading_strategies;
 mod binance_structs;
+mod helpers;
 
 use std::sync::mpsc;
 use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use serde::{Deserialize};
 use serde_json::{Value};
 use binance_structs::{ReceivedData, OccuredTrade};
+use helpers::{epoch_ms};
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,11 +28,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // tx/rx for things to print
     let (print_tx, print_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
-    // tx/rx for trade data line
-    let (trade_tx, trade_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
+    // tx/rx for trades out
+    let (marketreq_tx, marketreq_rx): (Sender<binance_structs::MarketRequest>, Receiver<binance_structs::MarketRequest>) = mpsc::channel();
 
-    // tx/rx for depth map update line
-    let (depth_tx, depth_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
+    // tx/rx for user_data stream
+    let (userdata_tx, userdata_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
 
     // tx/rx for klines update line
     let (kline_tx, kline_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
@@ -41,37 +42,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // thread to pull live webstream data from binance
     let _klines_thread = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("ethusdt@kline_1m", &kline_tx, &init_tx3, binance_structs::StreamType::KLine);
+        binance_interface::live_binance_stream("ethusdt@kline_1m", &kline_tx, &init_tx2, binance_structs::StreamType::KLine);
     });
-
+    
+    // thread for user data
+    let _user_data_thread = thread::Builder::new().name("user_data_thread".to_string()).spawn (move || {
+        let listen_key = binance_interface::new_listenkey(epoch_ms());
+        binance_interface::live_binance_stream(&listen_key, &userdata_tx, &init_tx3, binance_structs::StreamType::UserData);
+    });
+    
     // spawn action thread
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
         // variables initialization
         let mut running = false;
+        let mut diagnostic = false;
         let mut settings = HashMap::new();
+
         // period is 1 minute for now
         settings.insert("ohlc_period", 60 * 1000);
         settings.insert("max_lookback_ms", settings["ohlc_period"] * 24 * 60);
-        let mut trades_in_window: Vec<OccuredTrade> = Vec::new();
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
-
-        // time init
-        let now_instant = SystemTime::now();
-        let epoch_now = now_instant
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards.");
-        let mut time_threshold = u64::try_from(epoch_now.as_millis()).unwrap() + settings["ohlc_period"];
 
         // main loop
         loop {
             // system time 
-            let now_instant = SystemTime::now();
-            let epoch_now = now_instant
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards.");
-            let time_now = u64::try_from(epoch_now.as_millis()).unwrap();
+            let time_now = epoch_ms();
 
-            // check if command command
+            // check if command exists
             let mut command_good = true;
             let command = match cmd_rx.try_recv() {
                 Ok(data) => data,
@@ -138,6 +135,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     let response = binance_interface::binance_trade_api(request);
                     println!("response: {}", response);
+                } else if command == "startdiagnostic" {
+                    diagnostic = true;
                 }
             }
 
@@ -145,60 +144,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if running {
                 // receive market data(trading only for now) and append to past list of trades
                 let mut kline_iter = kline_rx.try_iter();
+                let mut kline_valid = false;
                 loop {
                     let next_data = kline_iter.next();
                     if !next_data.is_none() {
                         let raw_kline = next_data.unwrap();
                         let kline = raw_kline.as_kline();
-                        println!("current_time: {}, close_time: {}, closed: {}", time_now, kline.end_time, kline.closed);
+                        if kline.closed {
+                            kline_valid = true;
+                            // append to ohlc_history 
+                            let append_arr = vec![kline.open, kline.high, kline.low, kline.close, kline.quantity];
+                            ohlc_history.push(append_arr);
+                        }
                     } else {
                         break;
                     }
                 }
-
-                if time_now >= time_threshold {
-                    // find ohlc of time period that just finished
-                    let mut close: f64 = 0.0;
-                    let mut open: f64 = 0.0;
-                    let mut high = f64::MIN;
-                    let mut low = f64::MAX;
-                    let mut volume: f64 = 0.0;
-                    for (i, trade) in trades_in_window.iter().enumerate() {
-                        if i == 0 {
-                            close = trade.price;
-                            high = trade.price;
-                            low = trade.price;
-                        } else if i == trades_in_window.len() - 1 {
-                            open = trade.price;
-                        } 
-                        if trade.price > high {
-                            high = trade.price;
-                        }
-                        if trade.price < low {
-                            low = trade.price;
-                        }
-                        volume += trade.quantity;
-                    }
-
-                    // append to ohlc_history 
-                    let append_arr = vec![open, high, low, close, volume];
-                    ohlc_history.push(append_arr);
-
+                
+                if kline_valid {
                     // slice to relevant part
                     let limit_len = (settings["max_lookback_ms"] / settings["ohlc_period"]) as usize;
-                    if ohlc_history.len() > limit_len {
+                    if ohlc_history.len() >= limit_len {
                         ohlc_history = ohlc_history[ohlc_history.len()-limit_len..].to_vec();
+
+                        // portfolio management
+                        // hashmap of algo id : capital allocation
+                        let mut capital_allocation = HashMap::new();
+                        capital_allocation.insert(0, 1);
+                        
+                        // call master strategy
+                        let signals = trading_strategies::master_strategy(&ohlc_history);
+
                     }
+                }
+            }
 
-                    // portfolio management
-                    // hashmap of algo id : capital allocation
-                    let mut capital_allocation = HashMap::new();
-                    capital_allocation.insert(0, 1);
-                    
-                    // call master strategy
-                    let signals = trading_strategies::master_strategy(&ohlc_history);
-
-                    time_threshold = time_now + settings["ohlc_period"];
+            if diagnostic {
+                let mut userdata_iter = userdata_rx.try_iter();
+                loop {
+                    let next_data = userdata_iter.next();
+                    if !next_data.is_none() {
+                        let userdata_update = next_data.unwrap();
+                        println!("userdata_update: {}", userdata_update.as_value());
+                    } else {
+                        break;
+                    }
                 }
             }
         }

@@ -22,11 +22,20 @@ impl ReceivedData {
         if let ReceivedData::KLine(c) = self {
             c
         } else {
-            panic!("ReceivedData could not be expressed as an OccuredTrade");
+            panic!("ReceivedData could not be expressed as an KLine");
+        }
+    }
+
+    pub fn as_value(self) -> Value {
+        if let ReceivedData::Value(c) = self {
+            c
+        } else {
+            panic!("ReceivedData could not be expressed as an Value");
         }
     }
 }
 
+#[derive(Clone)]
 pub struct KLineMinute {
     pub start_time: u64, 
     pub end_time: u64, 
@@ -57,7 +66,8 @@ pub struct OccuredTrade {
 pub enum StreamType {
     Trade, 
     Depth,
-    KLine
+    KLine,
+    UserData
 }
 
 pub struct MarketRequest {
@@ -72,6 +82,7 @@ impl MarketRequest {
         return format!("symbol={}&side={}&timestamp={}&quantity={}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
     }
 }
+
 
 // helper functions
 

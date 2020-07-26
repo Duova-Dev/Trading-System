@@ -69,6 +69,11 @@ pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
     return serde_json::from_str(&raw_response_str).unwrap();
 }
 
+pub fn new_listenkey(timestamp: u64) -> String {
+    let listen_key = binance_rest_api("new_listenkey", timestamp);
+    return listen_key["listenKey"].as_str().unwrap().to_string();
+}
+
 pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
     let base_url = "https://api.binance.us";
     let mut return_data = String::new();
@@ -121,6 +126,8 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
 
     let access_url = format!("{}/ws/{}", binance_base_endpoint, stream_name);
 
+    println!("attempting to access: {}", access_url);
+
     let (mut socket, response) =
         connect(Url::parse(&access_url).unwrap()).expect("Can't connect.");
 
@@ -140,10 +147,8 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
         let msg = socket.read_message().expect("Error reading message");
         let msg_string = format!("{}", msg);
         if msg_string.chars().next().unwrap() != '{' {
-            println!("Detected non valid json: {}", msg_string);
             continue;
         }
-        println!("msg_string: {}", msg_string);
         let parsed_msg: Value = serde_json::from_str(&msg_string).unwrap();
         match stream_type {
             binance_structs::StreamType::Trade => {
@@ -154,9 +159,11 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
                 data_tx.send(binance_structs::ReceivedData::Value(parsed_msg)).unwrap();
             }
             binance_structs::StreamType::KLine => {
-                println!("parsed_msg: {}", parsed_msg);
                 let constructed_kline = binance_structs::deserialize_kline(parsed_msg);
                 data_tx.send(binance_structs::ReceivedData::KLine(constructed_kline)).unwrap();
+            } 
+            binance_structs::StreamType::UserData => {
+                data_tx.send(binance_structs::ReceivedData::Value(parsed_msg)).unwrap();
             } 
         }
     }
