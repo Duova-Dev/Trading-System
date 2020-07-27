@@ -41,27 +41,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (cmd_tx, cmd_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     // thread to pull live webstream data from binance
-    let _klines_thread = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("ethusdt@kline_1m", &kline_tx, &init_tx2, binance_structs::StreamType::KLine);
+    let klines_thread = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
+        binance_interface::live_binance_stream("ethusdt@kline_1m", &kline_tx, &init_tx, binance_structs::StreamType::KLine);
     });
     
     // thread for user data
-    let _user_data_thread = thread::Builder::new().name("user_data_thread".to_string()).spawn (move || {
+    let user_data_thread = thread::Builder::new().name("user_data_thread".to_string()).spawn (move || {
         let listen_key = binance_interface::new_listenkey(epoch_ms());
-        binance_interface::live_binance_stream(&listen_key, &userdata_tx, &init_tx3, binance_structs::StreamType::UserData);
+        binance_interface::live_binance_stream(&listen_key, &userdata_tx, &init_tx2, binance_structs::StreamType::UserData);
     });
     
     // spawn action thread
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
+
         // variables initialization
         let mut running = false;
         let mut diagnostic = false;
+        let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
+        // symbols of interest
+        let symbols_interest = ["ETH".to_string(), "USDT".to_string()];
+        // settings
         let mut settings = HashMap::new();
-
-        // period is 1 minute for now
         settings.insert("ohlc_period", 60 * 1000);
         settings.insert("max_lookback_ms", settings["ohlc_period"] * 24 * 60);
-        let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
+        // hashmap tracking balance to be updated every time an api update comes in
+        let mut balances = HashMap::new();
+        // initialize balance
+        let account_info = binance_interface::binance_rest_api("get_accountinfo", epoch_ms());
+        let received_balances_vec = account_info["balances"].as_array().unwrap();
+        for asset in received_balances_vec {
+            let symbol = asset["asset"].as_str().unwrap().to_string();
+            let amt : f64 = asset["free"].as_str().unwrap().parse().unwrap();
+            if symbols_interest.contains(&symbol) {
+                balances.insert(symbol.to_string(), amt);
+            }
+        }
+        for symbol in &symbols_interest {
+            println!("{}: {}", symbol, balances[symbol]);
+        }
+        println!("Action initialization successful!");
+        init_tx3.send(true).unwrap();
 
         // main loop
         loop {
@@ -142,6 +161,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // main trade/pm logic
             if running {
+                // check for user data updates. currently only deals with balance
+                // receive balance updates(if any) and update balances
+                let mut userdata_iter = userdata_rx.try_iter();
+                loop {
+                    let next_data = userdata_iter.next();
+                    if !next_data.is_none() {
+                        let userdata_val = next_data.unwrap().as_value();
+                        let updated_balances = userdata_val["balances"].as_array().unwrap();
+                        for asset in updated_balances {
+                            let symbol = asset["asset"].as_str().unwrap().to_string();
+                            let amt : f64 = asset["free"].as_str().unwrap().parse().unwrap();
+                            if symbols_interest.contains(&symbol) {
+                                balances.insert(symbol, amt);
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
                 // receive market data(trading only for now) and append to past list of trades
                 let mut kline_iter = kline_rx.try_iter();
                 let mut kline_valid = false;
@@ -201,7 +240,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if received == true {
             counter += 1;
         }
-        if counter >= 1 {
+        if counter >= 3 {
             break;
         }
     }

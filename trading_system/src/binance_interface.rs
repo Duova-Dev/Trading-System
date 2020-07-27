@@ -75,6 +75,10 @@ pub fn new_listenkey(timestamp: u64) -> String {
 }
 
 pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
+    /*
+        Requests certain things fron the Binance REST API based on predefined settings.
+        This function returns the raw Serde Value, so if you want to parse the output, write a wrapper function.
+    */
     let base_url = "https://api.binance.us";
     let mut return_data = String::new();
 
@@ -117,7 +121,7 @@ pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
     }
 
     let raw_response_str = rest_req(api_key, final_url, req_type.to_string());
-    println!("raw_response_str: {}", raw_response_str);
+    // println!("raw_response_str: {}", raw_response_str);
     return serde_json::from_str(&raw_response_str).unwrap();
 }
 
