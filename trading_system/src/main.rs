@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // hashmap tracking balance to be updated every time an api update comes in
         let mut balances = HashMap::new();
         // initialize balance
-        let account_info = binance_interface::binance_rest_api("get_accountinfo", epoch_ms());
+        let account_info = binance_interface::binance_rest_api("get_accountinfo", epoch_ms(), "");
         let received_balances_vec = account_info["balances"].as_array().unwrap();
         for asset in received_balances_vec {
             let symbol = asset["asset"].as_str().unwrap().to_string();
@@ -129,18 +129,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if command == "start" {
                     running = true;
                 } else if command == "newlistenkey" {
-                    binance_interface::binance_rest_api("new_listenkey", time_now);
+                    binance_interface::binance_rest_api("new_listenkey", time_now, "");
                 } else if command == "displayaccountinfo" {
-                    println!("{}", binance_interface::binance_rest_api("get_accountinfo", time_now).to_string());
+                    println!("{}", binance_interface::binance_rest_api("get_accountinfo", time_now, "").to_string());
                 } else if command == "testping" {
-                    binance_interface::binance_rest_api("test_ping", time_now);
+                    binance_interface::binance_rest_api("test_ping", time_now, "");
                 } else if command == "testtime" {
-                    binance_interface::binance_rest_api("test_time", time_now);
+                    binance_interface::binance_rest_api("test_time", time_now, "");
                 } else if command == "exchangeinfo" {
-                    binance_interface::binance_rest_api("exchange_info", time_now);
-                } else if command == "selltousdt" {let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
+                    binance_interface::binance_rest_api("exchange_info", time_now, "");
+                } else if command == "selltousdt" {let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
                     // check account info and sells every asset to USDT
-                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
+                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
                     println!("account_info: {}", account_info);
                     
                     let mut i = 0;
@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if command == "startdiagnostic" {
                     diagnostic = true;
                 } else if command == "updatebalance" {
-                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
+                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
                     println!("account_info: {}", account_info);
                     let mut i = 0;
                     loop {
@@ -188,6 +188,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         i += 1;
                     }
                     println!("USDT Balance set to: {}", usdt_balance);
+                } else if command == "fetchpredata" {
+                    println!("fetching predata...");
+                    let api_limit = 500;
+                    let end_window = epoch_ms();
+                    let start_window = end_window - settings["max_lookback_ms"];
+                    let mut end_chunk = end_window;
+                    while end_chunk >= start_window {
+                        let mut new_ohlcs = binance_interface::fetch_klines(ticker, end_chunk, api_limit);
+                        let mut swap = Vec::new();
+                        swap.append(&mut new_ohlcs);
+                        swap.append(&mut ohlc_history);
+                        ohlc_history = swap.clone();
+                        end_chunk -= api_limit * 60 * 1000;
+                    }
+                    println!("finished with fetching predata.");
+
+                    let mut i = 0;
+                    for ohlc in &ohlc_history {
+                        println!("row: {} open: {} high: {} low: {} close: {} volume: {}", i, ohlc[0], ohlc[1], ohlc[2], ohlc[3], ohlc[4]);
+                        i += 1;
+                    }
+
                 }
             }
 

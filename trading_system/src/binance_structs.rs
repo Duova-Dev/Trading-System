@@ -86,7 +86,6 @@ impl MarketRequest {
 
 
 // helper functions
-
 pub fn deserialize_kline(raw_kline: Value) -> KLineMinute {
     KLineMinute {
         start_time: raw_kline["k"]["t"].as_u64().unwrap(), 
