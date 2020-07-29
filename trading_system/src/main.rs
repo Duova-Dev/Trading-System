@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             loop {
                 let next_data = marketreq_iter.next();
                 if !next_data.is_none() {
-
+                    binance_interface::binance_trade_api(next_data.unwrap());
                 } else {
                     break;
                 }
