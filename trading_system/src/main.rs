@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use serde::{Deserialize};
 use serde_json::{Value};
-use binance_structs::{ReceivedData, OccuredTrade};
+use binance_structs::{ReceivedData, MarketRequest};
 use helpers::{epoch_ms};
 
 
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (print_tx, print_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     // tx/rx for trades out
-    let (marketreq_tx, marketreq_rx): (Sender<binance_structs::MarketRequest>, Receiver<binance_structs::MarketRequest>) = mpsc::channel();
+    let (marketreq_tx, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) = mpsc::channel();
 
     // tx/rx for user_data stream
     let (userdata_tx, userdata_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
@@ -46,24 +46,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     
     // thread for user data
-    let user_data_thread = thread::Builder::new().name("user_data_thread".to_string()).spawn (move || {
+    let userdata_thread = thread::Builder::new().name("userdata_thread".to_string()).spawn (move || {
         let listen_key = binance_interface::new_listenkey(epoch_ms());
         binance_interface::live_binance_stream(&listen_key, &userdata_tx, &init_tx2, binance_structs::StreamType::UserData);
     });
+
+    // thread for sending/processing market requests
+    let marketreq_thread = thread::Builder::new().name("marketreq_thread".to_string()).spawn (move || {
+        loop {
+            let mut marketreq_iter = marketreq_rx.try_iter();
+            loop {
+                let next_data = marketreq_iter.next();
+                if !next_data.is_none() {
+
+                } else {
+                    break;
+                }
+            }
+        }
+    });
     
-    // spawn action thread
+    // action thread(main trading system)
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
 
-        // variables initialization
+        /*
+            Following code initializes variables.
+        */
+
+        // process flags
         let mut running = false;
         let mut diagnostic = false;
+
+        // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
-        // symbols of interest
-        let symbols_interest = ["ETH".to_string(), "USDT".to_string()];
-        // settings
+        let mut algo_status = vec![0];
+        let mut capital_split = vec![1.0];
+        let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
+        let ticker = "ETHUSDT";
+        let mut usdt_balance: f64 = -1.0;
+
+        // settings(numerical only)
         let mut settings = HashMap::new();
         settings.insert("ohlc_period", 60 * 1000);
         settings.insert("max_lookback_ms", settings["ohlc_period"] * 24 * 60);
+
         // hashmap tracking balance to be updated every time an api update comes in
         let mut balances = HashMap::new();
         // initialize balance
@@ -79,6 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for symbol in &symbols_interest {
             println!("{}: {}", symbol, balances[symbol]);
         }
+
         println!("Action initialization successful!");
         init_tx3.send(true).unwrap();
 
@@ -111,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     binance_interface::binance_rest_api("test_time", time_now);
                 } else if command == "exchangeinfo" {
                     binance_interface::binance_rest_api("exchange_info", time_now);
-                } else if command == "selltousdt" {
+                } else if command == "selltousdt" {let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
                     // check account info and sells every asset to USDT
                     let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
                     println!("account_info: {}", account_info);
@@ -124,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("{}", account_info["balances"][i]);
                             if account_info["balances"][i]["asset"] != "USDT" && account_info["balances"][i]["free"] != 0 {
                                 println!("Attempting to sell {} amount of {}...", account_info["balances"][i]["free"], account_info["balances"][i]["asset"]);
-                                let request = binance_structs::MarketRequest {
+                                let request = MarketRequest {
                                     symbol: account_info["balances"][i]["asset"].to_string(), 
                                     side: "SELL".to_string(), 
                                     timestamp: time_now,
@@ -144,18 +171,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         i += 1;
                     }
-                    
-                } else if command == "testtrade" {
-                    let request = binance_structs::MarketRequest {
-                        symbol: "ETHUSDT".to_string(), 
-                        side: "BUY".to_string(), 
-                        timestamp: time_now,
-                        quantity: 0.04
-                    };
-                    let response = binance_interface::binance_trade_api(request);
-                    println!("response: {}", response);
                 } else if command == "startdiagnostic" {
                     diagnostic = true;
+                } else if command == "updatebalance" {
+                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now);
+                    println!("account_info: {}", account_info);
+                    let mut i = 0;
+                    loop {
+                        if account_info["balances"][i].is_null() {
+                            break;
+                        } else {
+                            if account_info["balances"][i]["asset"] == "USDT" {
+                                usdt_balance = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                            }
+                        }
+                        i += 1;
+                    }
+                    println!("USDT Balance set to: {}", usdt_balance);
+                }
+            }
+
+            // do preliminary check for usdt_balance validity
+            if running {
+                if usdt_balance == 1.0 {
+                    println!("USDT Balance is invalid. Consider running updatebalance.");
+                    running = false;
                 }
             }
 
@@ -213,7 +253,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         
                         // call master strategy
                         let signals = trading_strategies::master_strategy(&ohlc_history);
-
+                        
+                        for (i, signal) in signals.iter().enumerate() {
+                            if signal != &algo_status[i] {
+                                if signal == &1 {
+                                    let request = MarketRequest {
+                                        symbol: ticker.to_string(), 
+                                        side: "BUY".to_string(), 
+                                        timestamp: epoch_ms(),
+                                        quantity: usdt_balance * capital_split[i]
+                                    };
+                                    marketreq_tx.send(request.clone()).unwrap();
+                                } else {
+                                    let request = MarketRequest {
+                                        symbol: ticker.to_string(), 
+                                        side: "SELL".to_string(), 
+                                        timestamp: epoch_ms(),
+                                        quantity: usdt_balance * capital_split[i]
+                                    };
+                                    marketreq_tx.send(request.clone()).unwrap();
+                                }
+                                
+                            }
+                        }
+                        
                     }
                 }
             }
@@ -291,5 +354,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         
     }
+
+
     Ok(())
 }

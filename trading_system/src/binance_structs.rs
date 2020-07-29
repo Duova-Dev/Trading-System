@@ -70,6 +70,7 @@ pub enum StreamType {
     UserData
 }
 
+#[derive(Clone)]
 pub struct MarketRequest {
     pub symbol: String,
     pub side: String,

@@ -1,23 +1,36 @@
 *action thread*
 
-Keep a system clock(in milliseconds)
-end_time threshold
-
 init {
 	ping account info and sell to base currency(USDT)
-	
+	initialize capital allocation struct
 }
 loop {
 	receive trades and input into trades_in_window vec
-	if time >= threshold:
-		process trades_in_window to generate OHLC
-		pass OHLC into all the trades to generate signals
-		PM logic to generate capital allocation
-			
-		interface with data_out to send orders
-		threshold += threshold_increment
-
+	if kline_valid:
+		slice ohlc vec
+		run algorithms to generate signals
+		loop through signals to 
 }
 
 
 *trades outgoing thread*
+
+loop {
+	receive MarketRequest
+	send MarketRequest
+}
+
+
+*balance tracking logic*
+have a vector of symbols of interest in settings
+hashmap of {symbol: [free, locked]}
+with each api update, update the hashmap
+have this hashmap constantly updated per loop to ensure up-to-date data at all times
+portfolio management system can then use this information to formulate market request orders
+
+*strategy buy/sell strategy*
+algorithm returns 1, 0, -1. replace -1s with 0 for now because no shorting
+store vectors of previous algorithm outputs
+if it's different, submit a market order
+store any algorithm related data in vectors, with the indices being IDs. so shapes of algo-related vectors are 
+assumed to be the same.
