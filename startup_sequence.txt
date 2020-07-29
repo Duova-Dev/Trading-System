@@ -7,5 +7,9 @@
     That means that any balances in other cryptos are ignored(there technically shouldn't be any after selltousdt)
     This command will eventually have to run automatically over some predetermined interval, but this will have to do for now.
 
-3. run command 'start'
+3. run command 'fetchpredata'
+    This command fetchs previous data required for the initialization of the system. In other words, it fetches the past max_lookback worth of data 
+    to give to the algorithms for the generation of signals. Hence called "predata."
+
+4. run command 'start'
     This will start the main trading loop, and the trading system should begin to trade. 
