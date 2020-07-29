@@ -1,3 +1,4 @@
 *.key
 trading_system/target/
 *.DS_Store
+logs/
