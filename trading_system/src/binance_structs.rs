@@ -75,7 +75,7 @@ pub struct MarketRequest {
     pub symbol: String,
     pub side: String,
     pub timestamp: u64,
-    pub quantity: f64,
+    pub quantity: f64, 
 }
 
 impl MarketRequest {

@@ -13,6 +13,8 @@ use serde::{Deserialize};
 use serde_json::{Value};
 use binance_structs::{ReceivedData, MarketRequest};
 use helpers::{epoch_ms};
+use chrono::prelude::*;
+use std::fs::{File, OpenOptions};
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -28,6 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // tx/rx for things to print
     let (print_tx, print_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
+    // tx/rx for things to print
+    let (logging_tx, logging_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+
     // tx/rx for trades out
     let (marketreq_tx, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) = mpsc::channel();
 
@@ -39,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // tx/rx for command lines
     let (cmd_tx, cmd_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let cmd_tx_action = cmd_tx.clone();
 
     // thread to pull live webstream data from binance
     let klines_thread = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
@@ -58,13 +64,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             loop {
                 let next_data = marketreq_iter.next();
                 if !next_data.is_none() {
-                    binance_interface::binance_trade_api(next_data.unwrap());
+                    let result = binance_interface::binance_trade_api(next_data.unwrap());
+                    println!("Printing API result from market order.");
+                    println!("{}", result);
                 } else {
                     break;
                 }
             }
         }
     });
+
+    /*
+    // thread for logging
+    let logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
+        let local_now: DateTime<Local> = Local::now();
+        let file_name = format!("../logs/{}.txt", local_now);
+        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
+        loop {
+            let mut logging_iter = logging_rx.try_iter();
+            loop {
+                let next_data = logging_iter.next();
+                if !next_data.is_none() {
+                    log_file.write(next_data.unwrap().as_bytes()).unwrap();
+                } else {
+                    break;
+                }
+            }
+        }
+    });
+    */
     
     // action thread(main trading system)
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
@@ -77,10 +105,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut running = false;
         let mut diagnostic = false;
 
+        // convenience variables
+        let mut previous_displayed_epoch: u64 = 0;
+        let buffer = 1.0;
+        let mut balance_updated = true;
+
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
         let mut algo_status = vec![0];
         let mut capital_split = vec![1.0];
+        let eth_stepsize = 0.01;
+        let mut amt_asset = vec![0.0];
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
         let ticker = "ETHUSDT";
         let mut usdt_balance: f64 = -1.0;
@@ -128,17 +163,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if command_good {
                 if command == "start" {
                     running = true;
+                } else if command == "stop" {
+                    running = false;
                 } else if command == "newlistenkey" {
                     binance_interface::binance_rest_api("new_listenkey", time_now, "");
                 } else if command == "displayaccountinfo" {
                     println!("{}", binance_interface::binance_rest_api("get_accountinfo", time_now, "").to_string());
                 } else if command == "testping" {
                     binance_interface::binance_rest_api("test_ping", time_now, "");
+                } else if command == "exchangeinfo" {
+                    let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
+                    println!("exchange_info: {}", exchange_info);
                 } else if command == "testtime" {
                     binance_interface::binance_rest_api("test_time", time_now, "");
-                } else if command == "exchangeinfo" {
-                    binance_interface::binance_rest_api("exchange_info", time_now, "");
-                } else if command == "selltousdt" {let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+                } else if command == "selltousdt" {
                     // check account info and sells every asset to USDT
                     let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
                     println!("account_info: {}", account_info);
@@ -149,13 +187,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         } else {
                             println!("{}", account_info["balances"][i]);
-                            if account_info["balances"][i]["asset"] != "USDT" && account_info["balances"][i]["free"] != 0 {
+                            let balance: f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                            let symbol: String = account_info["balances"][i]["asset"].as_str().unwrap().to_string();
+                            if symbol != "USDT" && balance != 0.0 {
                                 println!("Attempting to sell {} amount of {}...", account_info["balances"][i]["free"], account_info["balances"][i]["asset"]);
                                 let request = MarketRequest {
-                                    symbol: account_info["balances"][i]["asset"].to_string(), 
+                                    symbol: symbol, 
                                     side: "SELL".to_string(), 
                                     timestamp: time_now,
-                                    quantity: account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap()
+                                    quantity: account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap(),
                                 };
                                 let response = binance_interface::binance_trade_api(request);
                                 if let Some(field) = response.get("status") {
@@ -183,6 +223,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             if account_info["balances"][i]["asset"] == "USDT" {
                                 usdt_balance = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                                usdt_balance -= buffer;
                             }
                         }
                         i += 1;
@@ -223,6 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // main trade/pm logic
             if running {
+
                 // check for user data updates. currently only deals with balance
                 // receive balance updates(if any) and update balances
                 let mut userdata_iter = userdata_rx.try_iter();
@@ -263,6 +305,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 
                 if kline_valid {
+                    println!("kline is valid. running trading logic.");
+
                     // slice to relevant part
                     let limit_len = (settings["max_lookback_ms"] / settings["ohlc_period"]) as usize;
                     if ohlc_history.len() >= limit_len {
@@ -277,29 +321,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let signals = trading_strategies::master_strategy(&ohlc_history);
                         
                         for (i, signal) in signals.iter().enumerate() {
+                            println!("Current signal is {}. ", algo_status[i]);
+                            println!("Algorithm returned {}.", signal);
                             if signal != &algo_status[i] {
+                                println!("signal contradicts status, taking action.");
                                 if signal == &1 {
+                                    println!("sending buy signal.");
+                                    let mut amt_to_buy = usdt_balance * capital_split[i] / ohlc_history[ohlc_history.len()-1][3]; 
+                                    amt_to_buy = amt_to_buy - (amt_to_buy % eth_stepsize);
+                                    amt_asset[i] = amt_to_buy;
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "BUY".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: usdt_balance * capital_split[i]
+                                        quantity: amt_to_buy
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
                                 } else {
+                                    println!("sending sell signal.");
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "SELL".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: usdt_balance * capital_split[i]
+                                        quantity: amt_asset[i]
                                     };
+                                    amt_asset[i] = 0.0;
                                     marketreq_tx.send(request.clone()).unwrap();
                                 }
-                                
+                                algo_status[i] = *signal;
                             }
                         }
-                        
                     }
+                }
+
+                // update usdt balance if every algo is at 0
+                let mut all_usdt = true;
+                for status in &algo_status {
+                    if status != &0 {
+                        all_usdt = false;
+                    }
+                }
+
+                if all_usdt && !balance_updated{
+                    cmd_tx_action.send("updatebalance".to_string());
+                    balance_updated = true;
+                } else if !all_usdt && balance_updated {
+                    balance_updated = false;
+                }
+
+                // logging
+                if epoch_ms() % 1000 == 0  && epoch_ms() != previous_displayed_epoch{
+                    println!("Current time is: {}", epoch_ms());
+                    previous_displayed_epoch = epoch_ms();
                 }
             }
 
@@ -315,6 +388,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+
+            
         }
     });
 

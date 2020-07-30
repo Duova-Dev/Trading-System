@@ -26,10 +26,13 @@ fn sma_reversion(trades: &Vec<Vec<f64>>) -> i32 {
     let short_avg = short_sum / short_period as f64;
 
     if long_avg > short_avg {
+        println!("long_avg: {}, short_avg: {}. returning sell signal.", long_avg, short_avg);
         return -1;
     } else if long_avg < short_avg {
+        println!("long_avg: {}, short_avg: {}. returning buy signal.", long_avg, short_avg);
         return 1;
     } else {
+        println!("long_avg: {}, short_avg: {}. returning neutral signal.", long_avg, short_avg);
         return 0;
     }
 }

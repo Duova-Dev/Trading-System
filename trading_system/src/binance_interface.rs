@@ -141,6 +141,10 @@ pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Val
         let endpoint = "/api/v3/klines"; 
         final_url = format!("{}{}?{}", base_url, endpoint, arguments);
         req_type = "get".to_string();
+    } else if interface == "exchange_info" {
+        let endpoint = "/api/v3/exchangeInfo";
+        final_url = format!("{}{}?", base_url, endpoint); 
+        req_type = "get".to_string();
     }
 
     let raw_response_str = rest_req(api_key, final_url, req_type);
