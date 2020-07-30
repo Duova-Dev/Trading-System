@@ -190,13 +190,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let balance: f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
                             let ticker_sell: String = account_info["balances"][i]["asset"].as_str().unwrap().to_string();
                             let symbol = format!("{}USDT", ticker_sell);
-                            if symbol != "USDT" && balance != 0.0 {
-                                println!("Attempting to sell {} amount of {}...", account_info["balances"][i]["free"], account_info["balances"][i]["asset"]);
+                            if symbol != "USDTUSDT" && balance != 0.0 {
+                                let mut amt_to_sell:f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                                amt_to_sell = amt_to_sell - (amt_to_sell % eth_stepsize);
+                                println!("Attempting to sell {} amount of {}...", amt_to_sell, account_info["balances"][i]["asset"]);
                                 let request = MarketRequest {
                                     symbol: symbol, 
                                     side: "SELL".to_string(), 
                                     timestamp: time_now,
-                                    quantity: account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap(),
+                                    quantity: amt_to_sell,
                                 };
                                 let response = binance_interface::binance_trade_api(request);
                                 if let Some(field) = response.get("status") {
