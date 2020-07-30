@@ -259,7 +259,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                 } else if command == "fetchvariables" {
-                    println!("fetching and storing variables...");
+                    println!("fetching variables...");
                     algo_status = vec![];
                     let mut var_file = File::open("../var_files.txt").unwrap();
                     let mut reader = BufReader::new(var_file);
@@ -267,13 +267,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // read number of algorithms
                     let mut line = String::new();
                     reader.read_line(&mut line);
-                    let n: u64 = line.parse().unwrap();
+                    let n: u64 = line.trim().parse().unwrap();
                     
                     // read in algo_status
                     for i in 0..n {
                         let mut line = String::new();
                         reader.read_line(&mut line);
-                        let status : i32 = line.parse().unwrap();
+                        let status : i32 = line.trim().parse().unwrap();
                         algo_status.push(status);
                     }
 
@@ -281,12 +281,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for i in 0..n {
                         let mut line = String::new();
                         reader.read_line(&mut line);
-                        let amt: f64 = line.parse().unwrap();
+                        let amt: f64 = line.trim().parse().unwrap();
                         amt_asset.push(amt);
                     }
-                    println!("done with fetching and storing variables.");
-                } else if command == "storevariables" {
 
+                    println!("done with fetching variables.");
+                } else if command == "storevariables" {
+                    println!("writing variables...");
+                    let mut log_file = OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .open("../var_files.txt")
+                        .unwrap();
+                    let n: u64 = algo_status.len() as u64;
+                    let mut write_str = format!("{}\n", n);
+                    for i in 0..n {
+                        write_str = format!("{}{}\n", write_str, algo_status[i as usize]);
+                    }
+                    for i in 0..n {
+                        write_str = format!("{}{}\n", write_str, amt_asset[i as usize]);
+                    }
+                    log_file.write_all(write_str.as_bytes()).unwrap();
+                    println!("done with writing variables.");
+                } else if command == "displayvars" {
+                    println!("n: {}", algo_status.len());
+                    println!("printing algostatus...");
+                    for i in 0..algo_status.len() {
+                        print!("{} ", algo_status[i]);
+                    }
+                    println!("\nprinting amt_asset...");
+                    for i in 0..amt_asset.len() {
+                        print!("{} ", amt_asset[i]);
+                    }
+                    println!("\n done with printing variables.");
                 }
             }
 
