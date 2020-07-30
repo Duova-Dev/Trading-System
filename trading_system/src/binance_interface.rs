@@ -36,7 +36,7 @@ fn sign_hmac256(key: &str, message: &str) -> String {
 fn rest_req(api_key: &str, url: String, req_type: String) -> String { 
     let client = reqwest::blocking::Client::new();
     let mut response_str = String::new();
-    println!("url: {}", url);
+    println!("requesting url: {}", url);
     if req_type == "get" {
         response_str = client.get(&url)
             .header("X-MBX-APIKEY", api_key)
@@ -69,7 +69,35 @@ pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
     return serde_json::from_str(&raw_response_str).unwrap();
 }
 
-pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
+// wrapper functions for convenient access to certain api elements
+pub fn new_listenkey(timestamp: u64) -> String {
+    let listen_key = binance_rest_api("new_listenkey", timestamp, "");
+    return listen_key["listenKey"].as_str().unwrap().to_string();
+}
+
+pub fn fetch_klines(symbol: &str, end_time: u64, lookback: u64) -> Vec<Vec<f64>> {
+    let lookback_ms = lookback * 60 * 1000;
+    let message = format!("symbol={}&interval=1m&startTime={}&endTime={}", symbol, end_time-lookback_ms, end_time);
+    let mut vec_to_return: Vec<Vec<f64>> = Vec::new();
+    // let message = format!("symbol={}&interval=1m", symbol);
+    let klines_value = binance_rest_api("historicalkline", end_time, &message).as_array().unwrap().clone();
+    for period in klines_value {
+        let open : f64 = period[1].as_str().unwrap().parse().unwrap();
+        let high : f64 = period[2].as_str().unwrap().parse().unwrap();
+        let low : f64 = period[3].as_str().unwrap().parse().unwrap();
+        let close : f64 = period[4].as_str().unwrap().parse().unwrap();
+        let volume : f64 = period[5].as_str().unwrap().parse().unwrap();
+        let vec_to_push = vec![open, high, low, close, volume];
+        vec_to_return.push(vec_to_push);
+    }
+    return vec_to_return;
+}
+
+pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Value {
+    /*
+        Requests certain things fron the Binance REST API based on predefined settings.
+        This function returns the raw Serde Value, so if you want to parse the output, write a wrapper function.
+    */
     let base_url = "https://api.binance.us";
     let mut return_data = String::new();
 
@@ -109,10 +137,18 @@ pub fn binance_rest_api(interface: &str, timestamp: u64) -> Value {
         let endpoint = "/api/v3/exchangeInfo";
         final_url = format!("{}{}?", base_url, endpoint); 
         req_type = "get".to_string();
+    } else if interface == "historicalkline" {
+        let endpoint = "/api/v3/klines"; 
+        final_url = format!("{}{}?{}", base_url, endpoint, arguments);
+        req_type = "get".to_string();
+    } else if interface == "exchange_info" {
+        let endpoint = "/api/v3/exchangeInfo";
+        final_url = format!("{}{}?", base_url, endpoint); 
+        req_type = "get".to_string();
     }
 
-    let raw_response_str = rest_req(api_key, final_url, req_type.to_string());
-    println!("raw_response_str: {}", raw_response_str);
+    let raw_response_str = rest_req(api_key, final_url, req_type);
+    // println!("raw_response_str: {}", raw_response_str);
     return serde_json::from_str(&raw_response_str).unwrap();
 }
 
@@ -120,6 +156,8 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
     let binance_base_endpoint = "wss://stream.binance.com:9443";
 
     let access_url = format!("{}/ws/{}", binance_base_endpoint, stream_name);
+
+    println!("attempting to access: {}", access_url);
 
     let (mut socket, response) =
         connect(Url::parse(&access_url).unwrap()).expect("Can't connect.");
@@ -139,6 +177,9 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
     loop {
         let msg = socket.read_message().expect("Error reading message");
         let msg_string = format!("{}", msg);
+        if msg_string.chars().next().unwrap() != '{' {
+            continue;
+        }
         let parsed_msg: Value = serde_json::from_str(&msg_string).unwrap();
         match stream_type {
             binance_structs::StreamType::Trade => {
@@ -148,6 +189,13 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
             binance_structs::StreamType::Depth => {
                 data_tx.send(binance_structs::ReceivedData::Value(parsed_msg)).unwrap();
             }
+            binance_structs::StreamType::KLine => {
+                let constructed_kline = binance_structs::deserialize_kline(parsed_msg);
+                data_tx.send(binance_structs::ReceivedData::KLine(constructed_kline)).unwrap();
+            } 
+            binance_structs::StreamType::UserData => {
+                data_tx.send(binance_structs::ReceivedData::Value(parsed_msg)).unwrap();
+            } 
         }
     }
 }

@@ -1,0 +1,15 @@
+1. run command 'selltousdt'
+    This command checks the balance of the account, and sells any asset that is not USDT into USDT. 
+    This allows the trading system to have a fresh start.
+
+2. run command 'updatebalance'
+    This command checks the balances(accountinfo), grabs the USDT balance, and sets that as the starting balance of the live trading system. 
+    That means that any balances in other cryptos are ignored(there technically shouldn't be any after selltousdt)
+    This command will eventually have to run automatically over some predetermined interval, but this will have to do for now.
+
+3. run command 'fetchpredata'
+    This command fetchs previous data required for the initialization of the system. In other words, it fetches the past max_lookback worth of data 
+    to give to the algorithms for the generation of signals. Hence called "predata."
+
+4. run command 'start'
+    This will start the main trading loop, and the trading system should begin to trade. 
