@@ -15,6 +15,7 @@ use binance_structs::{ReceivedData, MarketRequest};
 use helpers::{epoch_ms};
 use chrono::prelude::*;
 use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader};
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -112,9 +113,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
-        let mut algo_status = vec![0];
+        let mut algo_status: Vec<i32> = vec![0];
         let mut capital_split = vec![1.0];
-        let eth_stepsize = 0.01;
+        let eth_stepsize = 0.00001;
         let mut amt_asset = vec![0.0];
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
         let ticker = "ETHUSDT";
@@ -192,7 +193,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let symbol = format!("{}USDT", ticker_sell);
                             if symbol != "USDTUSDT" && balance != 0.0 {
                                 let mut amt_to_sell:f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                                println!("original amt_to_sell: {}", amt_to_sell);
+                                println!("amt_to_sell % eth_stepsize: {}", amt_to_sell % eth_stepsize);
                                 amt_to_sell = amt_to_sell - (amt_to_sell % eth_stepsize);
+                                println!("final amt_to_sell: {}", amt_to_sell);
                                 println!("Attempting to sell {} amount of {}...", amt_to_sell, account_info["balances"][i]["asset"]);
                                 let request = MarketRequest {
                                     symbol: symbol, 
@@ -253,6 +257,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("row: {} open: {} high: {} low: {} close: {} volume: {}", i, ohlc[0], ohlc[1], ohlc[2], ohlc[3], ohlc[4]);
                         i += 1;
                     }
+
+                } else if command == "fetchvariables" {
+                    println!("fetching and storing variables...");
+                    algo_status = vec![];
+                    let mut var_file = File::open("../var_files.txt").unwrap();
+                    let mut reader = BufReader::new(var_file);
+                    
+                    // read number of algorithms
+                    let mut line = String::new();
+                    reader.read_line(&mut line);
+                    let n: u64 = line.parse().unwrap();
+                    
+                    // read in algo_status
+                    for i in 0..n {
+                        let mut line = String::new();
+                        reader.read_line(&mut line);
+                        let status : i32 = line.parse().unwrap();
+                        algo_status.push(status);
+                    }
+
+                    // read in amt_asset
+                    for i in 0..n {
+                        let mut line = String::new();
+                        reader.read_line(&mut line);
+                        let amt: f64 = line.parse().unwrap();
+                        amt_asset.push(amt);
+                    }
+                    println!("done with fetching and storing variables.");
+                } else if command == "storevariables" {
 
                 }
             }

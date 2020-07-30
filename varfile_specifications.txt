@@ -1,0 +1,6 @@
+The specifications for the variable save file. 
+The purpose of this file is to save the state of the program so that we can stop/start Jane without selling to USDT. 
+
+Line 1 should be the number of algorithms. Call this n.
+For n lines after, each line should contain algo_status[i]. 
+for n lines after, each line should contain amt_asset[i].
