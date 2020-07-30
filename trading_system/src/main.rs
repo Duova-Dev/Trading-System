@@ -188,7 +188,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             println!("{}", account_info["balances"][i]);
                             let balance: f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
-                            let symbol: String = account_info["balances"][i]["asset"].as_str().unwrap().to_string();
+                            let ticker_sell: String = account_info["balances"][i]["asset"].as_str().unwrap().to_string();
+                            let symbol = format!("{}USDT", ticker_sell);
                             if symbol != "USDT" && balance != 0.0 {
                                 println!("Attempting to sell {} amount of {}...", account_info["balances"][i]["free"], account_info["balances"][i]["asset"]);
                                 let request = MarketRequest {
