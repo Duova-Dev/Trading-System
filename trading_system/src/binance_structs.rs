@@ -80,7 +80,7 @@ pub struct MarketRequest {
 
 impl MarketRequest {
     pub fn to_string(self) -> String {
-        return format!("symbol={}&side={}&timestamp={}&quantity={}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
+        return format!("symbol={}&side={}&timestamp={}&quantity={:.8}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
     }
 }
 
