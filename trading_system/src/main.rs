@@ -74,26 +74,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
-
-    /*
-    // thread for logging
-    let logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
-        let local_now: DateTime<Local> = Local::now();
-        let file_name = format!("../logs/{}.txt", local_now);
-        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
-        loop {
-            let mut logging_iter = logging_rx.try_iter();
-            loop {
-                let next_data = logging_iter.next();
-                if !next_data.is_none() {
-                    log_file.write(next_data.unwrap().as_bytes()).unwrap();
-                } else {
-                    break;
-                }
-            }
-        }
-    });
-    */
     
     // action thread(main trading system)
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
@@ -109,7 +89,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // convenience variables
         let mut previous_displayed_epoch: u64 = 0;
         let buffer = 0.01;
-        let mut balance_updated = true;
 
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
@@ -119,7 +98,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut amt_asset = vec![0.0];
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
         let ticker = "ETHUSDT";
-        let mut free_usdt: f64 = -1.0;
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -220,22 +198,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 } else if command == "startdiagnostic" {
                     diagnostic = true;
-                } else if command == "updatebalance" {
-                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-                    println!("account_info: {}", account_info);
-                    let mut i = 0;
-                    loop {
-                        if account_info["balances"][i].is_null() {
-                            break;
-                        } else {
-                            if account_info["balances"][i]["asset"] == "USDT" {
-                                free_usdt = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
-                                free_usdt -= buffer;
-                            }
-                        }
-                        i += 1;
-                    }
-                    println!("USDT Balance set to: {}", free_usdt);
                 } else if command == "fetchpredata" {
                     println!("fetching predata...");
                     let api_limit = 500;
@@ -258,7 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         i += 1;
                     }
 
-                } else if command == "fetchvariables" {
+                } else if command == "fetchvars" {
                     println!("fetching variables...");
                     algo_status = vec![];
                     let mut var_file = File::open("../var_files.txt").unwrap();
@@ -286,7 +248,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     println!("done with fetching variables.");
-                } else if command == "storevariables" {
+                } else if command == "storevars" {
                     println!("writing variables...");
                     let mut log_file = OpenOptions::new()
                         .read(true)
@@ -315,14 +277,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         print!("{} ", amt_asset[i]);
                     }
                     println!("\n done with printing variables.");
-                }
-            }
-
-            // do preliminary check for free_usdt validity
-            if running {
-                if free_usdt == -1.0 {
-                    println!("USDT Balance is invalid. Consider running updatebalance.");
-                    running = false;
                 }
             }
 
@@ -420,6 +374,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 let relative_split = capital_split[i] / total_percent;
 
+                                if balances[algo_status[i] as usize] == -1.0 {
+                                    panic!("Invalid balance.");
+                                }
+
                                 // if signal is 0(back to USDT), calculate amount to sell.
                                 // if signal is positive(into a currency), calculate USDT amount then multiply by price
                                 let mut amt = relative_split * balances[algo_status[i] as usize];
@@ -447,29 +405,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
-
-                // update usdt balance if every algo is at 0
-                let mut all_usdt = true;
-                for status in &algo_status {
-                    if status != &0 {
-                        all_usdt = false;
-                    }
-                }
-
-                if all_usdt && !balance_updated{
-                    cmd_tx_action.send("updatebalance".to_string());
-                    balance_updated = true;
-                } else if !all_usdt && balance_updated {
-                    balance_updated = false;
-                }
-
                 // logging
                 if epoch_ms() % 1000 == 0  && epoch_ms() != previous_displayed_epoch{
                     println!("Current time is: {}", epoch_ms());
                     previous_displayed_epoch = epoch_ms();
                 }
             }
-
             if diagnostic {
                 let mut userdata_iter = userdata_rx.try_iter();
                 loop {
@@ -481,9 +422,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                 }
-            }
-
-            
+            }            
         }
     });
 

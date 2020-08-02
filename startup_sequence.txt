@@ -1,7 +1,0 @@
-
-1. run command 'fetchpredata'
-    This command fetchs previous data required for the initialization of the system. In other words, it fetches the past max_lookback worth of data 
-    to give to the algorithms for the generation of signals. Hence called "predata."
-
-2. run command 'start'
-    This will start the main trading loop, and the trading system should begin to trade. 
