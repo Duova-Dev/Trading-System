@@ -1,0 +1,44 @@
+next problem
+
+leftover values / fixing how the program deals with spare cash
+
+solutions
+1. manual variable setting system? 
+	one size fits all but very inefficient and not pretty
+	already implemented
+2. command to redistribute funds
+3. continuously update cash reserves
+	each loop, multiply price by amount in currency 
+	and add to usdt to calculate "notional" portfolio value
+	
+
+position sizing
+
+for every buy signal, get the relative split of the algorithm compared to total split of the free algorithms
+
+so ex.
+
+A  B  C  D  E
+10 20 5 25 40
+
+Example #1 
+How to divide in USDT
+say A and C are not in a play. 
+A generates a buy signal. 
+10/(10+5) = .66, so .66 of the free USDT balance would go to the signal that A generated.
+
+This example generalizes to all currencies. The next example illustrates this.  
+
+Example #2
+say B and D are in a play in the same currency(say ETH as an example).
+
+
+Program structure
+
+kline_valid {
+	for i in signals:
+		if signal is different:
+			fetch account information
+			get account split
+			buy that much
+}

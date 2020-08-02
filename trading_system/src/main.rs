@@ -108,18 +108,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // convenience variables
         let mut previous_displayed_epoch: u64 = 0;
-        let buffer = 1.0;
+        let buffer = 0.01;
         let mut balance_updated = true;
 
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0];
-        let mut capital_split = vec![1.0];
+        let capital_split = vec![1.0];
         let eth_stepsize = 0.00001;
         let mut amt_asset = vec![0.0];
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
         let ticker = "ETHUSDT";
-        let mut usdt_balance: f64 = -1.0;
+        let mut free_usdt: f64 = -1.0;
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -229,13 +229,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         } else {
                             if account_info["balances"][i]["asset"] == "USDT" {
-                                usdt_balance = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
-                                usdt_balance -= buffer;
+                                free_usdt = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                                free_usdt -= buffer;
                             }
                         }
                         i += 1;
                     }
-                    println!("USDT Balance set to: {}", usdt_balance);
+                    println!("USDT Balance set to: {}", free_usdt);
                 } else if command == "fetchpredata" {
                     println!("fetching predata...");
                     let api_limit = 500;
@@ -318,9 +318,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            // do preliminary check for usdt_balance validity
+            // do preliminary check for free_usdt validity
             if running {
-                if usdt_balance == 1.0 {
+                if free_usdt == -1.0 {
                     println!("USDT Balance is invalid. Consider running updatebalance.");
                     running = false;
                 }
@@ -389,27 +389,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("Algorithm returned {}.", signal);
                             if signal != &algo_status[i] {
                                 println!("signal contradicts status, taking action.");
-                                if signal == &1 {
-                                    println!("sending buy signal.");
-                                    let mut amt_to_buy = usdt_balance * capital_split[i] / ohlc_history[ohlc_history.len()-1][3]; 
-                                    amt_to_buy = amt_to_buy - (amt_to_buy % eth_stepsize);
-                                    amt_asset[i] = amt_to_buy;
+                                
+                                // fetch account information and calculate relative split to put into play
+
+                                // calculate balance for each symbol in symbols_interest
+                                let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+                                let mut j = 0;
+                                let mut balances = vec![-1.0; symbols_interest.len()];
+                                loop {
+                                    if account_info["balances"][j].is_null() {
+                                        break;
+                                    } else {
+                                        let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
+                                        let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
+                                        for k in 0..symbols_interest.len() {
+                                            if balance_ticker == symbols_interest[k] {
+                                                balances[k] = balance;
+                                            }
+                                        }
+                                    }
+                                    j += 1;
+                                }
+
+                                let mut total_percent = 0.0;
+                                // calculate relative split
+                                for (j, status) in algo_status.iter().enumerate() {
+                                    if status == &algo_status[i] {
+                                        total_percent += capital_split[j];
+                                    }
+                                }
+                                let relative_split = capital_split[i] / total_percent;
+
+                                // if signal is 0(back to USDT), calculate amount to sell.
+                                // if signal is positive(into a currency), calculate USDT amount then multiply by price
+                                let mut amt = relative_split * balances[algo_status[i] as usize];
+
+                                if signal != &0 {
+                                    amt /= ohlc_history[ohlc_history.len()-1][3];
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "BUY".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: amt_to_buy
+                                        quantity: amt
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
                                 } else {
-                                    println!("sending sell signal.");
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "SELL".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: amt_asset[i]
+                                        quantity: amt
                                     };
-                                    amt_asset[i] = 0.0;
                                     marketreq_tx.send(request.clone()).unwrap();
                                 }
                                 algo_status[i] = *signal;
