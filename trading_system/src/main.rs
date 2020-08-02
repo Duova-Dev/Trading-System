@@ -95,7 +95,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut algo_status: Vec<i32> = vec![0];
         let capital_split = vec![1.0];
         let eth_stepsize = 0.00001;
-        let mut amt_asset = vec![0.0];
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
         let ticker = "ETHUSDT";
 
@@ -238,15 +237,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let status : i32 = line.trim().parse().unwrap();
                         algo_status.push(status);
                     }
-
-                    // read in amt_asset
-                    for i in 0..n {
-                        let mut line = String::new();
-                        reader.read_line(&mut line);
-                        let amt: f64 = line.trim().parse().unwrap();
-                        amt_asset.push(amt);
-                    }
-
                     println!("done with fetching variables.");
                 } else if command == "storevars" {
                     println!("writing variables...");
@@ -261,9 +251,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for i in 0..n {
                         write_str = format!("{}{}\n", write_str, algo_status[i as usize]);
                     }
-                    for i in 0..n {
-                        write_str = format!("{}{}\n", write_str, amt_asset[i as usize]);
-                    }
                     log_file.write_all(write_str.as_bytes()).unwrap();
                     println!("done with writing variables.");
                 } else if command == "displayvars" {
@@ -271,10 +258,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("printing algostatus...");
                     for i in 0..algo_status.len() {
                         print!("{} ", algo_status[i]);
-                    }
-                    println!("\nprinting amt_asset...");
-                    for i in 0..amt_asset.len() {
-                        print!("{} ", amt_asset[i]);
                     }
                     println!("\n done with printing variables.");
                 }
