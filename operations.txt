@@ -1,0 +1,23 @@
+
+This is an unofficial manual for running Jane. 
+
+Starting sequence
+0. choose from a or b. 
+0a. run command 'selltousdt'
+    This is to start from scratch, and sells all assets back into USDT. Commission will apply, and this is only for a blank slate. 
+
+0b. run command 'fetchvars' 
+    If a var_files.txt exists, and is populated, this can be used to start the program with a predefined state(what algorithms are in a play, etc.). 
+
+1. run command 'fetchpredata'
+    This command fetchs previous data required for the initialization of the system. In other words, it fetches the past max_lookback worth of data 
+    to give to the algorithms for the generation of signals. Hence called "predata."
+
+2. run command 'start'
+    This will start the main trading loop, and the trading system should begin to trade. 
+
+
+Ending sequence
+1. run command "storevars" 
+    This command will store the program state in a text file to retrieve later. This means that the program doesn't have to sell out to USDT and restart.
+

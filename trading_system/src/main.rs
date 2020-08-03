@@ -74,26 +74,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
-
-    /*
-    // thread for logging
-    let logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
-        let local_now: DateTime<Local> = Local::now();
-        let file_name = format!("../logs/{}.txt", local_now);
-        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
-        loop {
-            let mut logging_iter = logging_rx.try_iter();
-            loop {
-                let next_data = logging_iter.next();
-                if !next_data.is_none() {
-                    log_file.write(next_data.unwrap().as_bytes()).unwrap();
-                } else {
-                    break;
-                }
-            }
-        }
-    });
-    */
     
     // action thread(main trading system)
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
@@ -108,18 +88,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // convenience variables
         let mut previous_displayed_epoch: u64 = 0;
-        let buffer = 1.0;
-        let mut balance_updated = true;
+        let buffer = 0.01;
 
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0];
-        let mut capital_split = vec![1.0];
+        let capital_split = vec![1.0];
         let eth_stepsize = 0.00001;
-        let mut amt_asset = vec![0.0];
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
         let ticker = "ETHUSDT";
-        let mut usdt_balance: f64 = -1.0;
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -220,22 +197,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 } else if command == "startdiagnostic" {
                     diagnostic = true;
-                } else if command == "updatebalance" {
-                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-                    println!("account_info: {}", account_info);
-                    let mut i = 0;
-                    loop {
-                        if account_info["balances"][i].is_null() {
-                            break;
-                        } else {
-                            if account_info["balances"][i]["asset"] == "USDT" {
-                                usdt_balance = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
-                                usdt_balance -= buffer;
-                            }
-                        }
-                        i += 1;
-                    }
-                    println!("USDT Balance set to: {}", usdt_balance);
                 } else if command == "fetchpredata" {
                     println!("fetching predata...");
                     let api_limit = 500;
@@ -258,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         i += 1;
                     }
 
-                } else if command == "fetchvariables" {
+                } else if command == "fetchvars" {
                     println!("fetching variables...");
                     algo_status = vec![];
                     let mut var_file = File::open("../var_files.txt").unwrap();
@@ -276,17 +237,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let status : i32 = line.trim().parse().unwrap();
                         algo_status.push(status);
                     }
-
-                    // read in amt_asset
-                    for i in 0..n {
-                        let mut line = String::new();
-                        reader.read_line(&mut line);
-                        let amt: f64 = line.trim().parse().unwrap();
-                        amt_asset.push(amt);
-                    }
-
                     println!("done with fetching variables.");
-                } else if command == "storevariables" {
+                } else if command == "storevars" {
                     println!("writing variables...");
                     let mut log_file = OpenOptions::new()
                         .read(true)
@@ -299,9 +251,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for i in 0..n {
                         write_str = format!("{}{}\n", write_str, algo_status[i as usize]);
                     }
-                    for i in 0..n {
-                        write_str = format!("{}{}\n", write_str, amt_asset[i as usize]);
-                    }
                     log_file.write_all(write_str.as_bytes()).unwrap();
                     println!("done with writing variables.");
                 } else if command == "displayvars" {
@@ -310,19 +259,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for i in 0..algo_status.len() {
                         print!("{} ", algo_status[i]);
                     }
-                    println!("\nprinting amt_asset...");
-                    for i in 0..amt_asset.len() {
-                        print!("{} ", amt_asset[i]);
-                    }
                     println!("\n done with printing variables.");
-                }
-            }
-
-            // do preliminary check for usdt_balance validity
-            if running {
-                if usdt_balance == 1.0 {
-                    println!("USDT Balance is invalid. Consider running updatebalance.");
-                    running = false;
                 }
             }
 
@@ -389,27 +326,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("Algorithm returned {}.", signal);
                             if signal != &algo_status[i] {
                                 println!("signal contradicts status, taking action.");
-                                if signal == &1 {
-                                    println!("sending buy signal.");
-                                    let mut amt_to_buy = usdt_balance * capital_split[i] / ohlc_history[ohlc_history.len()-1][3]; 
-                                    amt_to_buy = amt_to_buy - (amt_to_buy % eth_stepsize);
-                                    amt_asset[i] = amt_to_buy;
+                                
+                                // fetch account information and calculate relative split to put into play
+
+                                // calculate balance for each symbol in symbols_interest
+                                let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+                                let mut j = 0;
+                                let mut balances = vec![-1.0; symbols_interest.len()];
+                                loop {
+                                    if account_info["balances"][j].is_null() {
+                                        break;
+                                    } else {
+                                        let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
+                                        let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
+                                        for k in 0..symbols_interest.len() {
+                                            if balance_ticker == symbols_interest[k] {
+                                                balances[k] = balance;
+                                            }
+                                        }
+                                    }
+                                    j += 1;
+                                }
+
+                                let mut total_percent = 0.0;
+                                // calculate relative split
+                                for (j, status) in algo_status.iter().enumerate() {
+                                    if status == &algo_status[i] {
+                                        total_percent += capital_split[j];
+                                    }
+                                }
+                                let relative_split = capital_split[i] / total_percent;
+
+                                if balances[algo_status[i] as usize] == -1.0 {
+                                    panic!("Invalid balance.");
+                                }
+
+                                // if signal is 0(back to USDT), calculate amount to sell.
+                                // if signal is positive(into a currency), calculate USDT amount then multiply by price
+                                let mut amt = relative_split * balances[algo_status[i] as usize];
+
+                                if signal != &0 {
+                                    amt /= ohlc_history[ohlc_history.len()-1][3];
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "BUY".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: amt_to_buy
+                                        quantity: amt
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
                                 } else {
-                                    println!("sending sell signal.");
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "SELL".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: amt_asset[i]
+                                        quantity: amt
                                     };
-                                    amt_asset[i] = 0.0;
                                     marketreq_tx.send(request.clone()).unwrap();
                                 }
                                 algo_status[i] = *signal;
@@ -417,29 +388,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
-
-                // update usdt balance if every algo is at 0
-                let mut all_usdt = true;
-                for status in &algo_status {
-                    if status != &0 {
-                        all_usdt = false;
-                    }
-                }
-
-                if all_usdt && !balance_updated{
-                    cmd_tx_action.send("updatebalance".to_string());
-                    balance_updated = true;
-                } else if !all_usdt && balance_updated {
-                    balance_updated = false;
-                }
-
                 // logging
                 if epoch_ms() % 1000 == 0  && epoch_ms() != previous_displayed_epoch{
                     println!("Current time is: {}", epoch_ms());
                     previous_displayed_epoch = epoch_ms();
                 }
             }
-
             if diagnostic {
                 let mut userdata_iter = userdata_rx.try_iter();
                 loop {
@@ -451,9 +405,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                 }
-            }
-
-            
+            }            
         }
     });
 
