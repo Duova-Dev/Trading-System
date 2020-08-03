@@ -348,6 +348,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     j += 1;
                                 }
 
+                                println!("listing calculated balances: ");
+                                for balance in &balances {
+                                    println!("{}", balance);
+                                }
+
                                 let mut total_percent = 0.0;
                                 // calculate relative split
                                 for (j, status) in algo_status.iter().enumerate() {
@@ -357,6 +362,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 let relative_split = capital_split[i] / total_percent;
 
+                                println!("relative_split: {}", relative_split);
+
                                 if balances[algo_status[i] as usize] == -1.0 {
                                     panic!("Invalid balance.");
                                 }
@@ -365,6 +372,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // if signal is positive(into a currency), calculate USDT amount then multiply by price
                                 let mut amt = relative_split * balances[algo_status[i] as usize];
 
+                                println!("final amt: {}", amt);
+                                
                                 if signal != &0 {
                                     amt /= ohlc_history[ohlc_history.len()-1][3];
                                     let request = MarketRequest {
