@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // tx/rx for things to print
     let (logging_tx, logging_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let logging_tx1 = logging_tx.clone();
 
     // tx/rx for trades out
     let (marketreq_tx, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) = mpsc::channel();
@@ -58,6 +59,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         binance_interface::live_binance_stream(&listen_key, &userdata_tx, &init_tx2, binance_structs::StreamType::UserData);
     });
 
+    // thread for logging
+    let logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
+        let local_now: DateTime<Local> = Local::now();
+        let file_name = format!("../logs/{}.txt", local_now);
+        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
+        loop {
+            let mut logging_iter = logging_rx.try_iter();
+            loop {
+                let next_data = logging_iter.next();
+                if !next_data.is_none() {
+                    let raw_str = next_data.unwrap();
+                    let write_str = format!("{}:: {}\n", epoch_ms(), raw_str);
+                    log_file.write(write_str.as_bytes()).unwrap();
+                } else {
+                    break;
+                }
+            }
+        }
+    });
+
+
     // thread for sending/processing market requests
     let marketreq_thread = thread::Builder::new().name("marketreq_thread".to_string()).spawn (move || {
         loop {
@@ -66,6 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let next_data = marketreq_iter.next();
                 if !next_data.is_none() {
                     let result = binance_interface::binance_trade_api(next_data.unwrap());
+                    let log_str = format!("trading_result: {}", result.to_string());
+                    logging_tx1.send(log_str);
                     println!("Printing API result from market order.");
                     println!("{}", result);
                 } else {
@@ -88,7 +112,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // convenience variables
         let mut previous_displayed_epoch: u64 = 0;
-        let buffer = 0.01;
 
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
@@ -260,6 +283,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         print!("{} ", algo_status[i]);
                     }
                     println!("\n done with printing variables.");
+                } else if command == "test1" {
+                    logging_tx.send("yes.".to_string());
                 }
             }
 
@@ -299,6 +324,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // append to ohlc_history 
                             let append_arr = vec![kline.open, kline.high, kline.low, kline.close, kline.quantity];
                             ohlc_history.push(append_arr);
+                            // logging
+                            let log_str = format!("new_ohlc: {} {} {} {} {}", kline.open, kline.high, kline.low, kline.close, kline.quantity);
+                            logging_tx.send(log_str);
                         }
                     } else {
                         break;
@@ -331,6 +359,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                 // calculate balance for each symbol in symbols_interest
                                 let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+
+                                // logging real quick
+                                let log_str = format!("account_update: {}", account_info.to_string());
+                                logging_tx.send(log_str);
+
                                 let mut j = 0;
                                 let mut balances = vec![-1.0; symbols_interest.len()];
                                 loop {
@@ -376,14 +409,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 
                                 if signal != &0 {
                                     amt /= ohlc_history[ohlc_history.len()-1][3];
+                                    let request_time = epoch_ms();
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "BUY".to_string(), 
-                                        timestamp: epoch_ms(),
+                                        timestamp: request_time,
                                         quantity: amt
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
+                                    let log_str = format!("market_request: {} BUY {} {}", ticker.to_string(), request_time, amt);
+                                    logging_tx.send(log_str);
                                 } else {
+                                    let request_time = epoch_ms();
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "SELL".to_string(), 
@@ -391,6 +428,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         quantity: amt
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
+                                    let log_str = format!("market_request: {} SELL {} {}", ticker.to_string(), request_time, amt);
+                                    logging_tx.send(log_str);
                                 }
                                 algo_status[i] = *signal;
                             }
