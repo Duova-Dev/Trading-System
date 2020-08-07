@@ -72,18 +72,28 @@ pub enum StreamType {
 
 #[derive(Clone)]
 pub struct MarketRequest {
+    /*
+        Struct for a market order. 
+        quantity or quoteOrderQty must be -1.0. One and only one must be a valid value. 
+    */
     pub symbol: String,
     pub side: String,
     pub timestamp: u64,
     pub quantity: f64, 
+    pub quoteOrderQty: f64,
 }
 
 impl MarketRequest {
     pub fn to_string(self) -> String {
-        return format!("symbol={}&side={}&timestamp={}&quantity={:.8}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
+        if self.quantity == -1.0 && self.quoteOrderQty != -1.0 {
+            return format!("symbol={}&side={}&timestamp={}&quoteOrderQty={:.8}&type=MARKET", self.symbol, self.side, self.timestamp, self.quoteOrderQty);
+        } else if self.quoteOrderQty == -1.0 && self.quantity != -1.0 {
+            return format!("symbol={}&side={}&timestamp={}&quantity={:.8}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
+        } else {
+            panic!("MarketRequest format is wrong. Quantity and QuoteOrderQty are both/neither -1.0.");
+        }
     }
 }
-
 
 // helper functions
 pub fn deserialize_kline(raw_kline: Value) -> KLineMinute {

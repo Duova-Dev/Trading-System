@@ -34,3 +34,10 @@ store vectors of previous algorithm outputs
 if it's different, submit a market order
 store any algorithm related data in vectors, with the indices being IDs. so shapes of algo-related vectors are 
 assumed to be the same.
+
+
+*logging*
+human readable format
+
+things to include
+timestamp, open, high, low, close, slippage(if any) 
