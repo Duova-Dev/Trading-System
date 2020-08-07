@@ -40,4 +40,4 @@ assumed to be the same.
 human readable format
 
 things to include
-timestamp, open, high, low, close, slippage(if any),  
+timestamp, open, high, low, close, slippage(if any) 

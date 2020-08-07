@@ -116,10 +116,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // portfolio management data
         let mut ohlc_history: Vec<Vec<f64>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0];
+        let mut p_data: Vec<Vec<f64>> = Vec::new();
+        for i in 0..algo_status.len() {
+            p_data.push(Vec::new());
+        }
         let capital_split = vec![1.0];
-        let eth_stepsize = 0.00001;
         let symbols_interest = ["USDT".to_string(), "ETH".to_string()];
+
+        // ethereum specific things
         let ticker = "ETHUSDT";
+        let eth_stepsize = 0.00001;
+        let eth_min_notional = 10.0;
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -203,6 +210,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     side: "SELL".to_string(), 
                                     timestamp: time_now,
                                     quantity: amt_to_sell,
+                                    quoteOrderQty: -1.0,
                                 };
                                 let response = binance_interface::binance_trade_api(request);
                                 if let Some(field) = response.get("status") {
@@ -347,7 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         capital_allocation.insert(0, 1);
                         
                         // call master strategy
-                        let signals = trading_strategies::master_strategy(&ohlc_history);
+                        let (signals, p_data) = trading_strategies::master_strategy(&ohlc_history, &p_data);
                         
                         for (i, signal) in signals.iter().enumerate() {
                             println!("Current signal is {}. ", algo_status[i]);
@@ -374,6 +382,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
                                         for k in 0..symbols_interest.len() {
                                             if balance_ticker == symbols_interest[k] {
+                                                println!("Setting value.");
                                                 balances[k] = balance;
                                             }
                                         }
@@ -395,8 +404,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 let relative_split = capital_split[i] / total_percent;
 
-                                println!("relative_split: {}", relative_split);
-
                                 if balances[algo_status[i] as usize] == -1.0 {
                                     panic!("Invalid balance.");
                                 }
@@ -405,16 +412,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // if signal is positive(into a currency), calculate USDT amount then multiply by price
                                 let mut amt = relative_split * balances[algo_status[i] as usize];
 
-                                println!("final amt: {}", amt);
-                                
+                                // amt processing
                                 if signal != &0 {
-                                    amt /= ohlc_history[ohlc_history.len()-1][3];
+                                    if amt <= eth_min_notional {
+                                        break;
+                                    }
+                                } else {
+                                    amt -= amt % eth_stepsize;
+                                }
+                                println!("final amt: {}", amt);
+
+                                if signal != &0 {
                                     let request_time = epoch_ms();
                                     let request = MarketRequest {
                                         symbol: ticker.to_string(), 
                                         side: "BUY".to_string(), 
                                         timestamp: request_time,
-                                        quantity: amt
+                                        quantity: -1.0,
+                                        quoteOrderQty: amt, 
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
                                     let log_str = format!("market_request: {} BUY {} {}", ticker.to_string(), request_time, amt);
@@ -425,7 +440,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         symbol: ticker.to_string(), 
                                         side: "SELL".to_string(), 
                                         timestamp: epoch_ms(),
-                                        quantity: amt
+                                        quantity: amt,
+                                        quoteOrderQty: -1.0,
                                     };
                                     marketreq_tx.send(request.clone()).unwrap();
                                     let log_str = format!("market_request: {} SELL {} {}", ticker.to_string(), request_time, amt);
