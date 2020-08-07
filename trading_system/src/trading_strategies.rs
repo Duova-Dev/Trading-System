@@ -25,8 +25,6 @@ fn sma_reversion(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>)
     let long_avg = long_sum / long_period as f64;
     let short_avg = short_sum / short_period as f64;
 
-    return (0, Vec::new());
-    /*
     if long_avg > short_avg {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning sell signal.", long_avg, short_avg);
         return (0, Vec::new());
@@ -37,7 +35,6 @@ fn sma_reversion(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>)
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning neutral signal.", long_avg, short_avg);
         return (0, Vec::new());
     }
-    */
 }
 
 fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>) {
