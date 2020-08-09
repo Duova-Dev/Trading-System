@@ -395,7 +395,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             for (i, signal) in signals.iter().enumerate() {
                                 println!("Current algo play is {}. ", algo_status[i]);
                                 println!("Algorithm returned {} indicator.", signal);
-                                if (signal != &algo_status[i]) && (signal == &0 || &algo_status[i] == &0) {
+                                /* 
+                                    Two conditions to check for: 
+                                        1. algorithm wants to sell out. In this case, check if the currency that the algo is current in 
+                                            is the same as the current ticker. In that case, the sell signal is valid. 
+                                        2. algorithm wants to buy in. Simply check that the algo is free and then buy in.
+                                */
+                                if ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
+                                    || (signal == &1 && &algo_status[i] == &0) {
                                     println!("signal contradicts status, taking action.");
 
                                     // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
