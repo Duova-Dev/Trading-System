@@ -1,0 +1,6 @@
+Text document explaining some of the variables within the program. 
+
+ohlc_history: a 3D vector of type f64. 
+
+    This is the vector holding the necessary OHLC data for all the algorithms to run. 
+    The shape is a, b, 5, where a = number of tickers to keep track of and b = number of minutes of lookback(assuming each row of ohlc is a minute long).

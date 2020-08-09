@@ -75,7 +75,8 @@ pub fn new_listenkey(timestamp: u64) -> String {
     return listen_key["listenKey"].as_str().unwrap().to_string();
 }
 
-pub fn fetch_klines(symbol: &str, end_time: u64, lookback: u64) -> Vec<Vec<f64>> {
+pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Vec<Vec<f64>> {
+    let symbol: &str = symbol_str;
     let lookback_ms = lookback * 60 * 1000;
     let message = format!("symbol={}&interval=1m&startTime={}&endTime={}", symbol, end_time-lookback_ms, end_time);
     let mut vec_to_return: Vec<Vec<f64>> = Vec::new();
