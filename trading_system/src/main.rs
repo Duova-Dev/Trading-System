@@ -114,7 +114,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         /*
             Following code initializes variables.
         */
-
         // process flags
         let mut running = false;
         let mut diagnostic = false;
@@ -389,15 +388,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // the numbers denote which currency the algo is playing.
                             let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
                             p_data[ticker_i] = new_p_data;
-
-                            // fetch account information and calculate relative split to put into play
-                            let mut balances = vec![-1.0; symbols_interest.len()];
-                            // calculate balance for each symbol in symbols_interest
-                            let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
     
                             // logging real quick
                             logging_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
-                            logging_tx.send(format!("account_update: {}", account_info.to_string()));
                             
                             for (i, signal) in signals.iter().enumerate() {
                                 println!("Current algo play is {}. ", algo_status[i]);
@@ -412,6 +405,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             break;
                                         }
                                     }
+
+                                    // fetch account information and calculate relative split to put into play
+                                    let mut balances = vec![-1.0; symbols_interest.len()];
+                                    // calculate balance for each symbol in symbols_interest
+                                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+                                    logging_tx.send(format!("account_update: {}", account_info.to_string()));
 
                                     // calculate balances
                                     let mut j = 0;
@@ -477,10 +476,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             quantity: -1.0,
                                             quoteOrderQty: amt, 
                                         };
+                                        logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                                         marketreq_tx.send(request.clone()).unwrap();
-                                        let log_str = format!("market_request: {} BUY {} {}", ticker_list[ticker_i].to_string(), request_time, amt);
-                                        logging_tx.send(log_str);
-                                        algo_status[i] = ticker_i as i32;
+                                        algo_status[i] = (ticker_i + 1) as i32;
                                     } else {
                                         let request_time = epoch_ms();
                                         let request = MarketRequest {
@@ -490,9 +488,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             quantity: amt,
                                             quoteOrderQty: -1.0,
                                         };
+                                        logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                                         marketreq_tx.send(request.clone()).unwrap();
-                                        let log_str = format!("market_request: {} SELL {} {}", ticker_list[ticker_i].to_string(), request_time, amt);
-                                        logging_tx.send(log_str);
                                         algo_status[i] = 0;
                                     }
 

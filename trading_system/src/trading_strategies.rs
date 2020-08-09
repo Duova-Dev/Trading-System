@@ -7,7 +7,6 @@ use crate::binance_structs::{OccuredTrade};
 
 
 fn sma_reversion(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>) {
-    println!("sma_reversion is running!");
     let short_period = 576;
     let long_period = 24 * 60;
 
