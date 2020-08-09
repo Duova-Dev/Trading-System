@@ -32,12 +32,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // tx/rx for things to print
     let (print_tx, print_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
-    // tx/rx for things to print
+    // tx/rx for things to log
     let (logging_tx, logging_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
     let logging_tx1 = logging_tx.clone();
 
     // tx/rx for trades out
     let (marketreq_tx, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) = mpsc::channel();
+
+    // tx/rx for trades confirm
+    let (reqconfirm_tx, reqconfirm_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
 
     // tx/rx for user_data stream
     let (userdata_tx, userdata_rx): (Sender<ReceivedData>, Receiver<ReceivedData>) = mpsc::channel();
@@ -90,10 +93,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let next_data = marketreq_iter.next();
                 if !next_data.is_none() {
                     let result = binance_interface::binance_trade_api(next_data.unwrap());
-                    let log_str = format!("trading_result: {}", result.to_string());
-                    logging_tx1.send(log_str);
                     println!("Printing API result from market order.");
                     println!("{}", result);
+                    let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
+                    if filled_status == "FILLED".to_string() {
+                        reqconfirm_tx.send(true);
+                    }
+                    let log_str = format!("trading_result: {}", result.to_string());
+                    logging_tx1.send(log_str);
                 } else {
                     break;
                 }
@@ -120,7 +127,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ohlc_history: Vec<Vec<Vec<f64>>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0];
         let capital_split = vec![1.0];
-        let symbols_interest = ["USDT".to_string(), "ETH".to_string(), "BTC".to_string()];
+        let symbols_interest = [
+            "USDT".to_string(), 
+            "ETH".to_string(), 
+            "BTC".to_string(),
+            "LTC".to_string(),
+        ];
         let mut ticker_list = Vec::new();
         for i in 1..symbols_interest.len() {
             let ticker = format!("{}{}", symbols_interest[i], symbols_interest[0]);
@@ -332,6 +344,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let raw_kline = next_data.unwrap();
                         let kline = raw_kline.as_kline();
                         if kline.closed {
+                            println!("kline.symbol: {}", kline.symbol);
+                            println!("ticker_list: ");
+                            for ticker in &ticker_list {
+                                println!("{}", ticker);
+                            }
                             let index = ticker_list.iter().position(|x| x == &kline.symbol).unwrap();
                             if ohlc_valid[index] == true {
                                 panic!("Valid value already in place in the next ohlc segment for symbol.");
@@ -347,7 +364,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // check if all symbol ohlcs are closed, and take action if they are
                             if !(ohlc_valid.contains(&false)) {
                                 kline_valid = true;
-                                ohlc_valid = vec![false; 3];
+                                ohlc_valid = vec![false; ticker_list.len()];
                             }
                         }
                     } else {
@@ -363,15 +380,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // iterate through all the symbols
                     for ticker_i in 0..ticker_list.len() {
-                        println!("Now on ticker: {}", ticker_i);
+                        println!("Now on ticker: {}", ticker_list[ticker_i]);
                         if ohlc_history[ticker_i].len() >= limit_len {
-                            ohlc_history[ticker_i] = ohlc_history[ticker_i][ohlc_history.len()-limit_len..].to_vec();
+                            ohlc_history[ticker_i] = ohlc_history[ticker_i][ohlc_history[ticker_i].len()-limit_len..].to_vec();
                             
                             // call master strategy
                             // keep in mind, signals returned direct from the function is either 0 or 1. This is different from algo_status, where
                             // the numbers denote which currency the algo is playing.
                             let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
                             p_data[ticker_i] = new_p_data;
+
+                            // fetch account information and calculate relative split to put into play
+                            let mut balances = vec![-1.0; symbols_interest.len()];
+                            // calculate balance for each symbol in symbols_interest
+                            let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+    
+                            // logging real quick
+                            logging_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
+                            logging_tx.send(format!("account_update: {}", account_info.to_string()));
                             
                             for (i, signal) in signals.iter().enumerate() {
                                 println!("Current algo play is {}. ", algo_status[i]);
@@ -379,15 +405,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if (signal != &algo_status[i]) && (signal == &0 || &algo_status[i] == &0) {
                                     println!("signal contradicts status, taking action.");
 
-                                    // fetch account information and calculate relative split to put into play
-                                    let mut balances = vec![-1.0; symbols_interest.len()];
-                                    // calculate balance for each symbol in symbols_interest
-                                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-            
-                                    // logging real quick
-                                    let log_str = format!("account_update: {}", account_info.to_string());
-                                    logging_tx.send(log_str);
-            
+                                    // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
+                                    loop {
+                                        let status = reqconfirm_rx.try_iter().next();
+                                        if status.is_none() {
+                                            break;
+                                        }
+                                    }
+
+                                    // calculate balances
                                     let mut j = 0;
                                     loop {
                                         if account_info["balances"][j].is_null() {
@@ -397,7 +423,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
                                             for k in 0..symbols_interest.len() {
                                                 if balance_ticker == symbols_interest[k] {
-                                                    println!("Setting value.");
                                                     balances[k] = balance;
                                                 }
                                             }
@@ -409,7 +434,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     for balance in &balances {
                                         println!("{}", balance);
                                     }
-    
+
                                     let mut total_percent = 0.0;
                                     // calculate relative split
                                     for (j, status) in algo_status.iter().enumerate() {
@@ -422,6 +447,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if balances[algo_status[i] as usize] == -1.0 {
                                         panic!("Invalid balance.");
                                     }
+
+                                    let mut balances_log = "".to_string();
+                                    for element in &balances {
+                                        balances_log = format!("{} {}", balances_log, element);
+                                    }
+                                    logging_tx.send(format!("calculated balance: {}", balances_log));
     
                                     // if signal is 0(back to USDT), calculate amount to sell.
                                     // if signal is positive(into a currency), calculate USDT amount then multiply by price
@@ -463,6 +494,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         let log_str = format!("market_request: {} SELL {} {}", ticker_list[ticker_i].to_string(), request_time, amt);
                                         logging_tx.send(log_str);
                                         algo_status[i] = 0;
+                                    }
+
+                                    // check to make sure that the trade went through
+                                    loop {
+                                        let req_status = reqconfirm_rx.recv().unwrap();
+                                        if req_status {
+                                            break;
+                                        }
                                     }
                                 }
                             }

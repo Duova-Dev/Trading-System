@@ -100,7 +100,7 @@ pub fn deserialize_kline(raw_kline: Value) -> KLineMinute {
     KLineMinute {
         start_time: raw_kline["k"]["t"].as_u64().unwrap(), 
         end_time: raw_kline["k"]["T"].as_u64().unwrap(), 
-        symbol: raw_kline["k"]["s"].to_string(),
+        symbol: raw_kline["k"]["s"].as_str().unwrap().parse().unwrap(),
         open: raw_kline["k"]["o"].as_str().unwrap().parse().unwrap(),
         high: raw_kline["k"]["h"].as_str().unwrap().parse().unwrap(),
         low: raw_kline["k"]["l"].as_str().unwrap().parse().unwrap(),
