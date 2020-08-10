@@ -123,8 +123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ohlc_valid = vec![false; 3];
 
         // generate/initializeportfolio management variables
+        let number_algos = 1;
         let mut ohlc_history: Vec<Vec<Vec<f64>>> = Vec::new();
-        let mut algo_status: Vec<i32> = vec![0];
+        let mut algo_status: Vec<i32> = vec![0; number_algos];
         let capital_split = vec![1.0];
         let symbols_interest = [
             "USDT".to_string(), 
@@ -139,11 +140,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut stepsize: Vec<f64> = vec![-1.0; symbols_interest.len()];
         let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()];
+        let mut previous_signals: Vec<Vec<i32>> = vec![vec![-2; number_algos]; ticker_list.len()];
         let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); algo_status.len()]; ticker_list.len()];
-
-        // ethereum specific things
-        let eth_stepsize = 0.00001;
-        let eth_min_notional = 10.0;
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -200,6 +198,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     running = true;
                 } else if command == "stop" {
                     running = false;
+                } else if command == "autostart" {
+
+                    // COPYPASTE OF FETCHING PREDATA
+                    println!("fetching predata...");
+                    let api_limit = 500;
+                    let end_window = epoch_ms();
+                    
+                    for (i, ticker) in ticker_list.iter().enumerate() {
+                        println!("fetching predata for {}...", ticker);
+                        let start_window = end_window - settings["max_lookback_ms"];
+                        let mut end_chunk = end_window;
+                        let mut ticker_ohlc = Vec::new();
+                        while end_chunk >= start_window {
+                            let mut new_ohlcs = binance_interface::fetch_klines(&ticker, end_chunk, api_limit);
+                            let mut swap = Vec::new();
+                            swap.append(&mut new_ohlcs);
+                            swap.append(&mut ticker_ohlc);
+                            ticker_ohlc = swap.clone();
+                            end_chunk -= api_limit * 60 * 1000;
+                        }
+                        ohlc_history.push(ticker_ohlc);
+                    }
+
+                    logging_tx.send("predata: finished fetching predata.".to_string());
+                    println!("finished with fetching predata.");
+
+                    // fetch first previous_signals
+                    for ticker_i in 0..ticker_list.len() {
+                        let (signals, p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
+                        previous_signals[ticker_i] = signals;
+                    }
+
+                    running = false;
                 } else if command == "newlistenkey" {
                     binance_interface::binance_rest_api("new_listenkey", time_now, "");
                 } else if command == "displayaccountinfo" {
@@ -230,8 +261,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if symbol != "USDTUSDT" && balance != 0.0 {
                                 let mut amt_to_sell:f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
                                 println!("original amt_to_sell: {}", amt_to_sell);
-                                println!("amt_to_sell % eth_stepsize: {}", amt_to_sell % eth_stepsize);
-                                amt_to_sell = amt_to_sell - (amt_to_sell % eth_stepsize);
+                                amt_to_sell = amt_to_sell - (amt_to_sell % 0.00001);
                                 println!("final amt_to_sell: {}", amt_to_sell);
                                 println!("Attempting to sell {} amount of {}...", amt_to_sell, account_info["balances"][i]["asset"]);
                                 let request = MarketRequest {
@@ -277,7 +307,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         ohlc_history.push(ticker_ohlc);
                     }
-
+                    
                     logging_tx.send("predata: finished fetching predata.".to_string());
                     println!("finished with fetching predata.");
                 } else if command == "fetchvars" {
@@ -327,6 +357,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("\nprinting min_notional...");
                     for i in &min_notional {
                         print!("{} ", i);
+                    }
+                    println!("\nprinting previous_signals...");
+                    for ticker_i in 0..ticker_list.len() {
+                        println!("\n{}: ", ticker_list[ticker_i]);
+                        for signal in &previous_signals[ticker_i] {
+                            print!("{} ", signal);
+                        }
                     }
                     println!("\n done with printing variables.");
                 }
@@ -392,17 +429,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // logging real quick
                             logging_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
                             
+                            // process each signal
                             for (i, signal) in signals.iter().enumerate() {
                                 println!("Current algo play is {}. ", algo_status[i]);
                                 println!("Algorithm returned {} indicator.", signal);
                                 /* 
-                                    Two conditions to check for: 
+                                    action_condition:
                                         1. algorithm wants to sell out. In this case, check if the currency that the algo is current in 
                                             is the same as the current ticker. In that case, the sell signal is valid. 
                                         2. algorithm wants to buy in. Simply check that the algo is free and then buy in.
+                                    signal_diff_condition: 
+                                        1. Only take action if the generated signal is different than the previous signal.
                                 */
-                                if ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
-                                    || (signal == &1 && &algo_status[i] == &0) {
+                                let action_condition = ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
+                                || (signal == &1 && &algo_status[i] == &0);
+                                let signal_diff_condition = signal != &previous_signals[ticker_i][i];
+                                if (action_condition && signal_diff_condition) {
                                     println!("signal contradicts status, taking action.");
 
                                     // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
@@ -413,13 +455,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
 
+                                    // calculate balances
                                     // fetch account information and calculate relative split to put into play
                                     let mut balances = vec![-1.0; symbols_interest.len()];
                                     // calculate balance for each symbol in symbols_interest
                                     let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
                                     logging_tx.send(format!("account_update: {}", account_info.to_string()));
-
-                                    // calculate balances
                                     let mut j = 0;
                                     loop {
                                         if account_info["balances"][j].is_null() {
@@ -435,35 +476,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                         j += 1;
                                     }
-            
                                     println!("listing calculated balances: ");
                                     for balance in &balances {
                                         println!("{}", balance);
                                     }
+                                    // log balance
+                                    let mut balances_log = "".to_string();
+                                    for element in &balances {
+                                        balances_log = format!("{} {}", balances_log, element);
+                                    }
+                                    logging_tx.send(format!("calculated balance: {}", balances_log));
 
-                                    let mut total_percent = 0.0;
                                     // calculate relative split
+                                    let mut total_percent = 0.0;
                                     for (j, status) in algo_status.iter().enumerate() {
                                         if status == &algo_status[i] {
                                             total_percent += capital_split[j];
                                         }
                                     }
                                     let relative_split = capital_split[i] / total_percent;
-    
+
                                     if balances[algo_status[i] as usize] == -1.0 {
                                         panic!("Invalid balance.");
                                     }
-
-                                    let mut balances_log = "".to_string();
-                                    for element in &balances {
-                                        balances_log = format!("{} {}", balances_log, element);
-                                    }
-                                    logging_tx.send(format!("calculated balance: {}", balances_log));
     
                                     // if signal is 0(back to USDT), calculate amount to sell.
                                     // if signal is positive(into a currency), calculate USDT amount then multiply by price
                                     let mut amt = relative_split * balances[algo_status[i] as usize];
-    
                                     // amt processing
                                     if signal != &0 {
                                         if amt <= min_notional[ticker_i] {
@@ -509,6 +548,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
+
+                            // update previous signal
+                            previous_signals[ticker_i] = signals;
                         }
                     }
                 }
