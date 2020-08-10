@@ -230,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         previous_signals[ticker_i] = signals;
                     }
 
-                    running = false;
+                    running = true;
                 } else if command == "newlistenkey" {
                     binance_interface::binance_rest_api("new_listenkey", time_now, "");
                 } else if command == "displayaccountinfo" {
