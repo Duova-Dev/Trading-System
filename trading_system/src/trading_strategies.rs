@@ -6,7 +6,7 @@ use crate::binance_structs;
 use crate::binance_structs::{OccuredTrade};
 
 
-fn sma_reversion(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>) {
+fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>) {
     let short_period = 576;
     let long_period = 24 * 60;
 
@@ -40,11 +40,18 @@ fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f
     let ema_lookback = 12f64 * 60f64;
     let sma_lookback = 24f64 * 60f64;
     let smoothing = 2f64;
-    let previous_ema = i_p_data[0];
     let trades_len = trades.len();
-
     let c_price = trades[trades_len-1][3];
-
+    let mut previous_ema = 0.0;
+    if i_p_data.len() != 0 {
+        previous_ema = i_p_data[0];
+    } else {
+        for i in trades_len-ema_lookback as usize .. trades_len{
+            previous_ema += trades[i][3];
+        }
+        previous_ema /= ema_lookback;
+    }
+    
     let new_ema = c_price * (smoothing / (1f64 + ema_lookback)) + previous_ema * (1f64 - (smoothing / (1f64 + ema_lookback)));
     
     let mut sma = 0.0;
@@ -82,7 +89,8 @@ pub fn master_strategy(
                 maps the ID of the algorithm to the result it returned.
     */
 
-    let mut strategies_list = vec![sma_reversion];
+    let mut strategies_list: Vec< 
+        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>)> = vec![&sma_crossover, &ema_sma_crossover];
 
     let mut signals = Vec::new();
     let mut p_data = Vec::new();
@@ -93,8 +101,6 @@ pub fn master_strategy(
         p_data.push(p_data_piece);
         i += 1;
     }
-
-    println!("length of signals: {}", signals.len());
 
     return (signals, p_data);
 }
