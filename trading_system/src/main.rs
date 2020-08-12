@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut ohlc_valid = vec![false; 3];
 
         // generate/initializeportfolio management variables
-        let number_algos = 2;
+        let number_algos = 1;
         let mut ohlc_history: Vec<Vec<Vec<f64>>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0; number_algos];
         let capital_split = vec![1.0; number_algos];
@@ -569,12 +569,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 
-                // logging
+                // displaytime
                 if epoch_ms() % 1000 == 0  && epoch_ms() != previous_displayed_epoch{
                     println!("Current time is: {}", epoch_ms());
                     previous_displayed_epoch = epoch_ms();
                 }
             }
+            
             if diagnostic {
                 let mut userdata_iter = userdata_rx.try_iter();
                 loop {

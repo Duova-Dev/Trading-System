@@ -90,7 +90,7 @@ pub fn master_strategy(
     */
 
     let mut strategies_list: Vec< 
-        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>)> = vec![&sma_crossover, &ema_sma_crossover];
+        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>)> = vec![&ema_sma_crossover];
 
     let mut signals = Vec::new();
     let mut p_data = Vec::new();
