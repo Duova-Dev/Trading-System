@@ -9,7 +9,7 @@ _Starting sequence_
 0b. run command 'fetchvars' 
     If a var_files.txt exists, and is populated, this can be used to start the program with a predefined state(what algorithms are in a play, etc.). 
 
-AUTO: 
+AUTO(a)): 
 1. run command 'autostart'
     This should take care of everything, unless you really know what you're doing. In that case, feel free to read the alternate commands down below 
     and run the appropriate ones. 

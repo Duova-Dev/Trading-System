@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let number_algos = 1;
         let mut ohlc_history: Vec<Vec<Vec<f64>>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0; number_algos];
-        let capital_split = vec![1.0];
+        let capital_split = vec![1.0; number_algos];
         let symbols_interest = [
             "USDT".to_string(), 
             "ETH".to_string(), 
@@ -141,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut stepsize: Vec<f64> = vec![-1.0; symbols_interest.len()];
         let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()];
         let mut previous_signals: Vec<Vec<i32>> = vec![vec![-2; number_algos]; ticker_list.len()];
-        let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); algo_status.len()]; ticker_list.len()];
+        let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); number_algos]; ticker_list.len()];
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -199,7 +199,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if command == "stop" {
                     running = false;
                 } else if command == "autostart" {
-
                     // COPYPASTE OF FETCHING PREDATA
                     println!("fetching predata...");
                     let api_limit = 500;
@@ -226,7 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // fetch first previous_signals
                     for ticker_i in 0..ticker_list.len() {
-                        let (signals, p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
+                        let (signals, p_data_temp) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
                         previous_signals[ticker_i] = signals;
                     }
 
@@ -387,6 +386,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             let index = ticker_list.iter().position(|x| x == &kline.symbol).unwrap();
                             if ohlc_valid[index] == true {
+                                logging_tx.send("PANIC: Valid value already in place in the next ohlc segment for symbol.".to_string());
+                                let mut ohlc_valid_str = "".to_string();
+                                for flag in ohlc_valid {
+                                    ohlc_valid_str = format!("{} {}", ohlc_valid_str, flag);
+                                }
+                                logging_tx.send(format!("panic_info: index - {}", index));
+                                logging_tx.send(format!("panic_info: ohlc_valid - {}", ohlc_valid_str));
                                 panic!("Valid value already in place in the next ohlc segment for symbol.");
                             }
                             let append_arr = vec![kline.open, kline.high, kline.low, kline.close, kline.quantity];
@@ -444,6 +450,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let action_condition = ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
                                 || (signal == &1 && &algo_status[i] == &0);
                                 let signal_diff_condition = signal != &previous_signals[ticker_i][i];
+                                println!("action_condition: {}", action_condition);
+                                println!("signal_diff_condition: {}", signal_diff_condition);
                                 if (action_condition && signal_diff_condition) {
                                     println!("signal contradicts status, taking action.");
 
@@ -497,6 +505,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let relative_split = capital_split[i] / total_percent;
 
                                     if balances[algo_status[i] as usize] == -1.0 {
+                                        logging_tx.send("PANIC: invalid balance.".to_string());
+                                        let mut balances_str = "".to_string();
+                                        for balance in balances {
+                                            balances_str = format!("{} {}", balances_str, balance);
+                                        }
+                                        logging_tx.send(format!("panic_info: balances - {}", balances_str));
                                         panic!("Invalid balance.");
                                     }
     
@@ -555,12 +569,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 
-                // logging
+                // displaytime
                 if epoch_ms() % 1000 == 0  && epoch_ms() != previous_displayed_epoch{
                     println!("Current time is: {}", epoch_ms());
                     previous_displayed_epoch = epoch_ms();
                 }
             }
+            
             if diagnostic {
                 let mut userdata_iter = userdata_rx.try_iter();
                 loop {
