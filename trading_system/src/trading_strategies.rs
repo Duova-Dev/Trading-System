@@ -8,6 +8,7 @@ use std::sync::mpsc::{Sender, Receiver};
 
 
 fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
+    // NOT FUNCTIONAL
     let short_period = 576;
     let long_period = 24 * 60;
 
@@ -27,13 +28,13 @@ fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>,
 
     if long_avg > short_avg {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning sell signal.", long_avg, short_avg);
-        return (0, Vec::new());
+        return (0, Vec::new(), String::new());
     } else if long_avg < short_avg {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning buy signal.", long_avg, short_avg);
-        return (1, Vec::new());
+        return (1, Vec::new(), String::new());
     } else {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning neutral signal.", long_avg, short_avg);
-        return (0, Vec::new());
+        return (0, Vec::new(), String::new());
     }
 }
 

@@ -225,7 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // fetch first previous_signals
                     for ticker_i in 0..ticker_list.len() {
-                        let (signals, p_data_temp) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
+                        let (signals, p_data_temp) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &logging_tx);
                         previous_signals[ticker_i] = signals;
                     }
 
@@ -429,7 +429,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // call master strategy
                             // keep in mind, signals returned direct from the function is either 0 or 1. This is different from algo_status, where
                             // the numbers denote which currency the algo is playing.
-                            let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i]);
+                            let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &logging_tx);
                             p_data[ticker_i] = new_p_data;
     
                             // logging real quick
