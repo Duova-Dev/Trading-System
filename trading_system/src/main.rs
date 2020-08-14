@@ -452,6 +452,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let signal_diff_condition = signal != &previous_signals[ticker_i][i];
                                 println!("action_condition: {}", action_condition);
                                 println!("signal_diff_condition: {}", signal_diff_condition);
+                                logging_tx.send(format!("conditions: action_condition: {} signal_diff_condition: {}", action_condition, signal_diff_condition));
                                 if (action_condition && signal_diff_condition) {
                                     println!("signal contradicts status, taking action.");
 
@@ -562,7 +563,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
-
                             // update previous signal
                             previous_signals[ticker_i] = signals;
                         }
