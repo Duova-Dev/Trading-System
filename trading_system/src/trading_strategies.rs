@@ -76,7 +76,7 @@ fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f
     }
 
     println!("{}", log_str);
-    return (0, vec![new_ema], log_str);
+    return (signal, vec![new_ema], log_str);
 }
 
 pub fn master_strategy(
