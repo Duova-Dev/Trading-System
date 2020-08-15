@@ -444,7 +444,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         1. algorithm wants to sell out. In this case, check if the currency that the algo is current in 
                                             is the same as the current ticker. In that case, the sell signal is valid. 
                                         2. algorithm wants to buy in. Simply check that the algo is free and then buy in.
-                                    signal_diff_condition: 
+                                    signal_diff_condition (CURRENTLY NOT IMPLEMENTED): 
                                         1. Only take action if the generated signal is different than the previous signal.
                                 */
                                 let action_condition = ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
@@ -453,7 +453,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 println!("action_condition: {}", action_condition);
                                 println!("signal_diff_condition: {}", signal_diff_condition);
                                 logging_tx.send(format!("conditions: action_condition: {} signal_diff_condition: {}", action_condition, signal_diff_condition));
-                                if (action_condition && signal_diff_condition) {
+                                if action_condition {
                                     println!("signal contradicts status, taking action.");
 
                                     // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
@@ -563,8 +563,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
+
+                            println!("previous_signals before: ");
+                            println!("{:?}", previous_signals);
                             // update previous signal
                             previous_signals[ticker_i] = signals;
+
+                            println!("previous_signals after: ");
+                            println!("{:?}", previous_signals);
                         }
                     }
                 }
