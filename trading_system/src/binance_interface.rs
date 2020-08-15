@@ -33,7 +33,7 @@ fn sign_hmac256(key: &str, message: &str) -> String {
     return signature_str;
 }
 
-fn rest_req(api_key: &str, url: String, req_type: String) -> String { 
+fn binance_rest_req(api_key: &str, url: String, req_type: String) -> String { 
     let client = reqwest::blocking::Client::new();
     let mut response_str = String::new();
     println!("requesting url: {}", url);
@@ -52,6 +52,28 @@ fn rest_req(api_key: &str, url: String, req_type: String) -> String {
     return response_str;
 }
 
+pub fn json_rest_req(url: String, req_type: String, msg: HashMap<&str, String>) -> String {
+    let client = reqwest::blocking::Client::new();
+    let mut response_str = String::new();
+    println!("requesting url: {}", url);
+    if req_type == "get" {
+        let response = client.get(&url)
+            .header("Content-Type","application/json")
+            .json(&msg)
+            .send().unwrap();
+        let returned_headers = response.headers();
+        response_str = response.text().unwrap();
+    } else if req_type == "post" {
+        let response = client.post(&url)
+            .header("Content-Type","application/json")
+            .json(&msg)
+            .send().unwrap();
+        let returned_headers = response.headers();
+        response_str = response.text().unwrap();
+    }
+    return response_str;
+}
+
 pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
     // find keys
     let mut key_file = File::open("../v0_1_0.key").unwrap();
@@ -65,7 +87,7 @@ pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
     let message = request.to_string();
     let generated_hmac = sign_hmac256(secret_key, &message);
     let final_url = format!("{}{}&signature={}", endpoint, message, generated_hmac);
-    let raw_response_str = rest_req(api_key, final_url, "post".to_string());
+    let raw_response_str = binance_rest_req(api_key, final_url, "post".to_string());
     return serde_json::from_str(&raw_response_str).unwrap();
 }
 
@@ -148,7 +170,7 @@ pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Val
         req_type = "get".to_string();
     }
 
-    let raw_response_str = rest_req(api_key, final_url, req_type);
+    let raw_response_str = binance_rest_req(api_key, final_url, req_type);
     // println!("raw_response_str: {}", raw_response_str);
     return serde_json::from_str(&raw_response_str).unwrap();
 }

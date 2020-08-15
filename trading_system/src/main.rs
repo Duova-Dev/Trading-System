@@ -8,6 +8,7 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use std::io::Write;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::convert::TryFrom;
 use serde::{Deserialize};
 use serde_json::{Value};
@@ -19,6 +20,9 @@ use std::io::{BufRead, BufReader};
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+    // diagnostic flag
+    let mut diagnostic = false;
     
     // tx/rx for init
     let (init_tx, init_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
@@ -67,20 +71,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // thread for logging
     let logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
-        let local_now: DateTime<Local> = Local::now();
-        let file_name = format!("../logs/{}.txt", local_now);
+        let log_ts: DateTime<Local> = Local::now();
+        let file_name = format!("../logs/{}.txt", log_ts);
         let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
+        let mut last_timestamp = epoch_ms();
+        let delta_time = 15000;
+        let mut webhook_logs: VecDeque<String> = VecDeque::new();
+        let mut logging_iter = logging_rx.try_iter();
         loop {
-            let mut logging_iter = logging_rx.try_iter();
-            loop {
-                let next_data = logging_iter.next();
-                if !next_data.is_none() {
-                    let raw_str = next_data.unwrap();
-                    let write_str = format!("{}:: {}\n", epoch_ms(), raw_str);
-                    log_file.write(write_str.as_bytes()).unwrap();
-                } else {
-                    break;
+            let next_data = logging_iter.next();
+            let local_now: DateTime<Local> = Local::now();
+            if !next_data.is_none() {
+                println!("{} ms until webhook write. ", last_timestamp as i64+delta_time as i64-epoch_ms() as i64);
+                let raw_str = next_data.unwrap();
+                webhook_logs.push_back(raw_str.clone());
+                // local log write
+                let write_str = format!("{}:: {}\n", local_now, raw_str);
+                log_file.write(write_str.as_bytes()).unwrap();
+            } 
+            
+            // write to discord if delta_t passed
+            if epoch_ms() >= last_timestamp + delta_time {
+                while webhook_logs.len() > 0 {
+                    println!("webhook_logs: {:?}", webhook_logs);
+                    let mut joined = String::new();
+                    let mut total_length = 0;
+                    loop {
+                        if webhook_logs.len() == 0 {
+                            break;
+                        }
+
+                        if webhook_logs[0].chars().count() + total_length >= 1500 {
+                            break;
+                        } else {
+                            total_length += webhook_logs[0].chars().count();
+                            joined = format!("{}\n{}", joined, webhook_logs.pop_front().unwrap());
+                        }
+                    }
+                    joined = format!("```{}\n\n{}```", local_now, joined);
+                    println!("JOINED: {}", joined);
+
+                    // discord webhook write
+                    let mut message = HashMap::new();
+                    message.insert("content", joined);
+                    let webhook_url = "https://discordapp.com/api/webhooks/744067382850486372/eMESqfoTfgc1tYvkF9smKdkkyL5W1bMPn7cT_e1R-rtVXz-xfXnGO0TW5gDe7z0Lvy0U";
+                    let response = binance_interface::json_rest_req(webhook_url.to_string(), "post".to_string(), message);
+                    println!("discord webhook response: {}", response);
                 }
+                last_timestamp += delta_time;
             }
         }
     });
@@ -91,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut marketreq_iter = marketreq_rx.try_iter();
             loop {
                 let next_data = marketreq_iter.next();
-                if !next_data.is_none() {
+                if !next_data.is_none() && !diagnostic {
                     let result = binance_interface::binance_trade_api(next_data.unwrap());
                     println!("Printing API result from market order.");
                     println!("{}", result);
@@ -116,7 +154,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         */
         // process flags
         let mut running = false;
-        let mut diagnostic = false;
 
         // convenience variables
         let mut previous_displayed_epoch: u64 = 0;
@@ -284,8 +321,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         i += 1;
                     }
-                } else if command == "startdiagnostic" {
+                } else if command == "diagnosticon" {
                     diagnostic = true;
+                    println!("Diagnostic has been turned on.");
+                } else if command == "diagnosticoff" {
+                    diagnostic = false;
+                    println!("Diagnostic has been turned off.");
                 } else if command == "fetchpredata" {
                     println!("fetching predata...");
                     let api_limit = 500;
@@ -345,25 +386,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("done with writing variables.");
                 } else if command == "displayvars" {
                     println!("n: {}", algo_status.len());
-                    println!("printing algostatus...");
-                    for i in 0..algo_status.len() {
-                        print!("{} ", algo_status[i]);
-                    }
-                    println!("\nprinting stepsize...");
-                    for i in &stepsize {
-                        print!("{} ", i);
-                    }
-                    println!("\nprinting min_notional...");
-                    for i in &min_notional {
-                        print!("{} ", i);
-                    }
-                    println!("\nprinting previous_signals...");
-                    for ticker_i in 0..ticker_list.len() {
-                        println!("\n{}: ", ticker_list[ticker_i]);
-                        for signal in &previous_signals[ticker_i] {
-                            print!("{} ", signal);
-                        }
-                    }
+                    println!("algostatus: {:?}", algo_status);
+                    println!("stepsize: {:?}", stepsize);
+                    println!("min_notional: {:?}", min_notional);
+                    println!("previous_signals: {:?}", previous_signals);
+                    println!("running: {}", running);
+                    println!("diagnostic: {}", diagnostic);
                     println!("\n done with printing variables.");
                 }
             }
@@ -452,7 +480,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let signal_diff_condition = signal != &previous_signals[ticker_i][i];
                                 println!("action_condition: {}", action_condition);
                                 println!("signal_diff_condition: {}", signal_diff_condition);
-                                logging_tx.send(format!("conditions: action_condition: {} signal_diff_condition: {}", action_condition, signal_diff_condition));
+                                logging_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
                                 if action_condition {
                                     println!("signal contradicts status, taking action.");
 
@@ -469,7 +497,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let mut balances = vec![-1.0; symbols_interest.len()];
                                     // calculate balance for each symbol in symbols_interest
                                     let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-                                    logging_tx.send(format!("account_update: {}", account_info.to_string()));
                                     let mut j = 0;
                                     loop {
                                         if account_info["balances"][j].is_null() {
@@ -485,16 +512,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                         j += 1;
                                     }
-                                    println!("listing calculated balances: ");
-                                    for balance in &balances {
-                                        println!("{}", balance);
-                                    }
+                                    println!("listing calculated balances: {:?}", balances);
+                                    
                                     // log balance
-                                    let mut balances_log = "".to_string();
-                                    for element in &balances {
-                                        balances_log = format!("{} {}", balances_log, element);
-                                    }
-                                    logging_tx.send(format!("calculated balance: {}", balances_log));
+                                    logging_tx.send(format!("tickers: {:?}", symbols_interest));
+                                    logging_tx.send(format!("calculated_balance: {:?}", balances));
 
                                     // calculate relative split
                                     let mut total_percent = 0.0;
@@ -573,12 +595,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("{:?}", previous_signals);
                         }
                     }
-                }
-                
-                // displaytime
-                if epoch_ms() % 1000 == 0  && epoch_ms() != previous_displayed_epoch{
-                    println!("Current time is: {}", epoch_ms());
-                    previous_displayed_epoch = epoch_ms();
                 }
             }
             
