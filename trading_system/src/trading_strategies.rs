@@ -4,9 +4,11 @@ use std::collections::HashMap;
 use serde_json::value::Value;
 use crate::binance_structs;
 use crate::binance_structs::{OccuredTrade};
+use std::sync::mpsc::{Sender, Receiver};
 
 
-fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>) {
+fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
+    // NOT FUNCTIONAL
     let short_period = 576;
     let long_period = 24 * 60;
 
@@ -26,17 +28,17 @@ fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>)
 
     if long_avg > short_avg {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning sell signal.", long_avg, short_avg);
-        return (0, Vec::new());
+        return (0, Vec::new(), String::new());
     } else if long_avg < short_avg {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning buy signal.", long_avg, short_avg);
-        return (1, Vec::new());
+        return (1, Vec::new(), String::new());
     } else {
         println!("SMA Crossover: long_avg: {}, short_avg: {}. returning neutral signal.", long_avg, short_avg);
-        return (0, Vec::new());
+        return (0, Vec::new(), String::new());
     }
 }
 
-fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>) {
+fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
     let ema_lookback = 12f64 * 60f64;
     let sma_lookback = 24f64 * 60f64;
     let smoothing = 2f64;
@@ -61,42 +63,48 @@ fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f
     sma /= sma_lookback;
 
     let mut signal = 0;
+    let mut log_str = String::new();
     if new_ema > sma {
-        println!("EMA SMA Crossover: ema: {}, sma: {}. returning buy signal.", new_ema, sma);
+        log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning buy signal.", new_ema, sma);
         signal = 1;
     } else if new_ema < sma {
-        println!("EMA SMA Crossover: ema: {}, sma: {}. returning sell signal.", new_ema, sma);
-        signal = -1;
+        log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning sell signal.", new_ema, sma);
+        signal = 0;
     } else {
-        println!("EMA SMA Crossover: ema: {}, sma: {}. returning neutral signal.", new_ema, sma);
+        log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning neutral signal.", new_ema, sma);
         signal = 0;
     }
 
-    return (0, vec![new_ema]);
+    println!("{}", log_str);
+    return (signal, vec![new_ema], log_str);
 }
 
 pub fn master_strategy(
     trades: &Vec<Vec<f64>>,
-    incoming_p_data: &Vec<Vec<f64>>
+    incoming_p_data: &Vec<Vec<f64>>,
+    logging_tx: &Sender<String>
 ) -> (Vec<i32>, Vec<Vec<f64>>) {
     /*
         One function to call all the strategies that are needed.
         Parameters:
             trades: 
                 trades that are within the window required
+            incoming_p_data:
+                p_data that was returned from the algorithms last run
         Returns:
             HashMap:
                 maps the ID of the algorithm to the result it returned.
     */
 
     let mut strategies_list: Vec< 
-        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>)> = vec![&ema_sma_crossover];
+        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>, String)> = vec![&ema_sma_crossover];
 
     let mut signals = Vec::new();
     let mut p_data = Vec::new();
     let mut i = 0;
     for strategy in strategies_list {
-        let (signal, p_data_piece) = strategy(trades, &incoming_p_data[i]);
+        let (signal, p_data_piece, logging_str) = strategy(trades, &incoming_p_data[i]);
+        logging_tx.send(format!("algo_logs: {}", logging_str));
         signals.push(signal);
         p_data.push(p_data_piece);
         i += 1;
