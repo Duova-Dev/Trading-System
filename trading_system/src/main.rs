@@ -17,13 +17,24 @@ use helpers::{epoch_ms};
 use chrono::prelude::*;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
+use std::env;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    // diagnostic flag
+    // global vars
     let mut diagnostic = false;
-    
+
+    // command line args
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() != 0 {
+        // diagnostic flag
+        if args.contains(&"diagnostic".to_string()) {
+            diagnostic = true;
+        }
+    }
+
     // tx/rx for init
     let (init_tx, init_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
     let init_tx2 = init_tx.clone();
@@ -75,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let file_name = format!("../logs/{}.txt", log_ts);
         let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
         let mut last_timestamp = epoch_ms();
-        let delta_time = 15000;
+        let delta_time = 60000;
         let mut webhook_logs: VecDeque<String> = VecDeque::new();
         let mut logging_iter = logging_rx.try_iter();
         loop {
@@ -108,7 +119,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             joined = format!("{}\n{}", joined, webhook_logs.pop_front().unwrap());
                         }
                     }
-                    joined = format!("```{}\n\n{}```", local_now, joined);
+
+                    if diagnostic {
+                        println!("diagnostic print on. ");
+                        joined = format!("```fix\n{}\n{}```", local_now, joined);
+                    } else {
+                        joined = format!("```\n{}\n\n{}```", local_now, joined);
+                    }
+                    println!("DIAGNOSTIC: {}", diagnostic);
                     println!("JOINED: {}", joined);
 
                     // discord webhook write
@@ -139,8 +157,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     let log_str = format!("trading_result: {}", result.to_string());
                     logging_tx1.send(log_str);
-                } else {
-                    break;
+                } else if !next_data.is_none() && diagnostic{
+                    reqconfirm_tx.send(true);
                 }
             }
         }
@@ -157,13 +175,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // convenience variables
         let mut previous_displayed_epoch: u64 = 0;
-        let mut ohlc_valid = vec![false; 3];
 
         // generate/initializeportfolio management variables
         let number_algos = 1;
         let mut ohlc_history: Vec<Vec<Vec<f64>>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0; number_algos];
-        let capital_split = vec![1.0; number_algos];
+        let capital_split = vec![1.0];
         let symbols_interest = [
             "USDT".to_string(), 
             "ETH".to_string(), 
@@ -321,12 +338,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         i += 1;
                     }
-                } else if command == "diagnosticon" {
-                    diagnostic = true;
-                    println!("Diagnostic has been turned on.");
-                } else if command == "diagnosticoff" {
-                    diagnostic = false;
-                    println!("Diagnostic has been turned off.");
                 } else if command == "fetchpredata" {
                     println!("fetching predata...");
                     let api_limit = 500;
@@ -393,6 +404,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("running: {}", running);
                     println!("diagnostic: {}", diagnostic);
                     println!("\n done with printing variables.");
+                } else if command == "discordtest" {
+                    let msg = "```fix\ntest\n```".to_string();
+                    // discord webhook write
+                    let mut message = HashMap::new();
+                    message.insert("content", msg);
+                    let webhook_url = "https://discordapp.com/api/webhooks/744067382850486372/eMESqfoTfgc1tYvkF9smKdkkyL5W1bMPn7cT_e1R-rtVXz-xfXnGO0TW5gDe7z0Lvy0U";
+                    let response = binance_interface::json_rest_req(webhook_url.to_string(), "post".to_string(), message);
+                    println!("discord webhook response: {}", response);
                 }
             }
 
@@ -400,7 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if running {
                 // receive market data(trading only for now) and append to past list of trades
                 let mut kline_iter = kline_rx.try_iter();
-                let mut kline_valid = false;
+                let mut kline_valid = 0;
                 loop {
                     let next_data = kline_iter.next();
                     if !next_data.is_none() {
@@ -413,203 +432,174 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 println!("{}", ticker);
                             }
                             let index = ticker_list.iter().position(|x| x == &kline.symbol).unwrap();
-                            if ohlc_valid[index] == true {
-                                logging_tx.send("PANIC: Valid value already in place in the next ohlc segment for symbol.".to_string());
-                                let mut ohlc_valid_str = "".to_string();
-                                for flag in ohlc_valid {
-                                    ohlc_valid_str = format!("{} {}", ohlc_valid_str, flag);
-                                }
-                                logging_tx.send(format!("panic_info: index - {}", index));
-                                logging_tx.send(format!("panic_info: ohlc_valid - {}", ohlc_valid_str));
-                                panic!("Valid value already in place in the next ohlc segment for symbol.");
-                            }
                             let append_arr = vec![kline.open, kline.high, kline.low, kline.close, kline.quantity];
                             ohlc_history[index].push(append_arr);
-                            ohlc_valid[index] = true;
+                            kline_valid = index as u64;
 
                             // logging
                             let log_str = format!("new_ohlc: {} {} {} {} {} {}", kline.symbol, kline.open, kline.high, kline.low, kline.close, kline.quantity);
                             logging_tx.send(log_str);
 
-                            // check if all symbol ohlcs are closed, and take action if they are
-                            if !(ohlc_valid.contains(&false)) {
-                                kline_valid = true;
-                                ohlc_valid = vec![false; ticker_list.len()];
-                            }
                         }
                     } else {
                         break;
                     }
                 }
                 
-                if kline_valid {
+                if kline_valid != 0 {
                     println!("kline is valid. running trading logic.");
-
+                    let ticker_i = kline_valid as usize;
                     // slice to relevant part
                     let limit_len = (settings["max_lookback_ms"] / settings["ohlc_period"]) as usize;
 
-                    // iterate through all the symbols
-                    for ticker_i in 0..ticker_list.len() {
-                        println!("Now on ticker: {}", ticker_list[ticker_i]);
-                        if ohlc_history[ticker_i].len() >= limit_len {
-                            ohlc_history[ticker_i] = ohlc_history[ticker_i][ohlc_history[ticker_i].len()-limit_len..].to_vec();
-                            
-                            // call master strategy
-                            // keep in mind, signals returned direct from the function is either 0 or 1. This is different from algo_status, where
-                            // the numbers denote which currency the algo is playing.
-                            let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &logging_tx);
-                            p_data[ticker_i] = new_p_data;
-    
-                            // logging real quick
-                            logging_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
-                            
-                            // process each signal
-                            for (i, signal) in signals.iter().enumerate() {
-                                println!("Current algo play is {}. ", algo_status[i]);
-                                println!("Algorithm returned {} indicator.", signal);
-                                /* 
-                                    action_condition:
-                                        1. algorithm wants to sell out. In this case, check if the currency that the algo is current in 
-                                            is the same as the current ticker. In that case, the sell signal is valid. 
-                                        2. algorithm wants to buy in. Simply check that the algo is free and then buy in.
-                                    signal_diff_condition (CURRENTLY NOT IMPLEMENTED): 
-                                        1. Only take action if the generated signal is different than the previous signal.
-                                */
-                                let action_condition = ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
-                                || (signal == &1 && &algo_status[i] == &0);
-                                let signal_diff_condition = signal != &previous_signals[ticker_i][i];
-                                println!("action_condition: {}", action_condition);
-                                println!("signal_diff_condition: {}", signal_diff_condition);
-                                logging_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
-                                if action_condition {
-                                    println!("signal contradicts status, taking action.");
+                    println!("On ticker: {}", ticker_list[ticker_i]);
+                    if ohlc_history[ticker_i].len() >= limit_len {
+                        ohlc_history[ticker_i] = ohlc_history[ticker_i][ohlc_history[ticker_i].len()-limit_len..].to_vec();
+                        
+                        // call master strategy
+                        // keep in mind, signals returned direct from the function is either 0 or 1. This is different from algo_status, where
+                        // the numbers denote which currency the algo is playing.
+                        let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &logging_tx);
+                        p_data[ticker_i] = new_p_data;
 
-                                    // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
-                                    loop {
-                                        let status = reqconfirm_rx.try_iter().next();
-                                        if status.is_none() {
-                                            break;
-                                        }
+                        // logging real quick
+                        logging_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
+                        logging_tx.send(format!("algo_status: {:?}", &algo_status));
+                        
+                        // process each signal
+                        for (i, signal) in signals.iter().enumerate() {
+                            println!("Current algo play is {}. ", algo_status[i]);
+                            println!("Algorithm returned {} indicator.", signal);
+                            /* 
+                                action_condition:
+                                    1. algorithm wants to sell out. In this case, check if the currency that the algo is current in 
+                                        is the same as the current ticker. In that case, the sell signal is valid. 
+                                    2. algorithm wants to buy in. Simply check that the algo is free and then buy in.
+                                signal_diff_condition (CURRENTLY NOT IMPLEMENTED): 
+                                    1. Only take action if the generated signal is different than the previous signal.
+                            */
+                            let action_condition = ((signal == &0 && &algo_status[i] != &0) && &algo_status[i]-1 == ticker_i as i32) 
+                            || (signal == &1 && &algo_status[i] == &0);
+                            let signal_diff_condition = signal != &previous_signals[ticker_i][i];
+                            println!("action_condition: {}", action_condition);
+                            println!("signal_diff_condition: {}", signal_diff_condition);
+                            logging_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
+                            if action_condition {
+                                println!("signal contradicts status, taking action.");
+
+                                // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
+                                loop {
+                                    let status = reqconfirm_rx.try_iter().next();
+                                    if status.is_none() {
+                                        break;
                                     }
+                                }
 
-                                    // calculate balances
-                                    // fetch account information and calculate relative split to put into play
-                                    let mut balances = vec![-1.0; symbols_interest.len()];
-                                    // calculate balance for each symbol in symbols_interest
-                                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-                                    let mut j = 0;
-                                    loop {
-                                        if account_info["balances"][j].is_null() {
-                                            break;
-                                        } else {
-                                            let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
-                                            let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
-                                            for k in 0..symbols_interest.len() {
-                                                if balance_ticker == symbols_interest[k] {
-                                                    balances[k] = balance;
-                                                }
+                                // calculate balances
+                                // fetch account information and calculate relative split to put into play
+                                let mut balances = vec![-1.0; symbols_interest.len()];
+                                // calculate balance for each symbol in symbols_interest
+                                let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+                                let mut j = 0;
+                                loop {
+                                    if account_info["balances"][j].is_null() {
+                                        break;
+                                    } else {
+                                        let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
+                                        let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
+                                        for k in 0..symbols_interest.len() {
+                                            if balance_ticker == symbols_interest[k] {
+                                                balances[k] = balance;
                                             }
                                         }
-                                        j += 1;
                                     }
-                                    println!("listing calculated balances: {:?}", balances);
-                                    
-                                    // log balance
-                                    logging_tx.send(format!("tickers: {:?}", symbols_interest));
-                                    logging_tx.send(format!("calculated_balance: {:?}", balances));
+                                    j += 1;
+                                }
+                                println!("listing calculated balances: {:?}", balances);
+                                
+                                // log balance
+                                logging_tx.send(format!("tickers: {:?}", symbols_interest));
+                                logging_tx.send(format!("calculated_balance: {:?}", balances));
 
-                                    // calculate relative split
-                                    let mut total_percent = 0.0;
-                                    for (j, status) in algo_status.iter().enumerate() {
-                                        if status == &algo_status[i] {
-                                            total_percent += capital_split[j];
-                                        }
+                                // calculate relative split
+                                let mut total_percent = 0.0;
+                                for (j, status) in algo_status.iter().enumerate() {
+                                    if status == &algo_status[i] {
+                                        total_percent += capital_split[j];
                                     }
-                                    let relative_split = capital_split[i] / total_percent;
+                                }
+                                let relative_split = capital_split[i] / total_percent;
 
-                                    if balances[algo_status[i] as usize] == -1.0 {
-                                        logging_tx.send("PANIC: invalid balance.".to_string());
-                                        let mut balances_str = "".to_string();
-                                        for balance in balances {
-                                            balances_str = format!("{} {}", balances_str, balance);
-                                        }
-                                        logging_tx.send(format!("panic_info: balances - {}", balances_str));
-                                        panic!("Invalid balance.");
+                                if balances[algo_status[i] as usize] == -1.0 {
+                                    logging_tx.send("PANIC: invalid balance.".to_string());
+                                    let mut balances_str = "".to_string();
+                                    for balance in balances {
+                                        balances_str = format!("{} {}", balances_str, balance);
                                     }
-    
-                                    // if signal is 0(back to USDT), calculate amount to sell.
-                                    // if signal is positive(into a currency), calculate USDT amount then multiply by price
-                                    let mut amt = relative_split * balances[algo_status[i] as usize];
-                                    // amt processing
-                                    if signal != &0 {
-                                        if amt <= min_notional[ticker_i] {
-                                            break;
-                                        }
-                                    } else {
-                                        amt -= amt % stepsize[ticker_i];
-                                    }
-                                    println!("final amt: {}", amt);
-    
-                                    if signal != &0 {
-                                        let request_time = epoch_ms();
-                                        let request = MarketRequest {
-                                            symbol: ticker_list[ticker_i].to_string(), 
-                                            side: "BUY".to_string(), 
-                                            timestamp: request_time,
-                                            quantity: -1.0,
-                                            quoteOrderQty: amt, 
-                                        };
-                                        logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
-                                        marketreq_tx.send(request.clone()).unwrap();
-                                        algo_status[i] = (ticker_i + 1) as i32;
-                                    } else {
-                                        let request_time = epoch_ms();
-                                        let request = MarketRequest {
-                                            symbol: ticker_list[ticker_i].to_string(), 
-                                            side: "SELL".to_string(), 
-                                            timestamp: epoch_ms(),
-                                            quantity: amt,
-                                            quoteOrderQty: -1.0,
-                                        };
-                                        logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
-                                        marketreq_tx.send(request.clone()).unwrap();
-                                        algo_status[i] = 0;
-                                    }
+                                    logging_tx.send(format!("panic_info: balances - {}", balances_str));
+                                    panic!("Invalid balance.");
+                                }
 
-                                    // check to make sure that the trade went through
-                                    loop {
-                                        let req_status = reqconfirm_rx.recv().unwrap();
-                                        if req_status {
-                                            break;
-                                        }
+                                // if signal is 0(back to USDT), calculate amount to sell.
+                                // if signal is positive(into a currency), calculate USDT amount then multiply by price
+                                let mut amt = relative_split * balances[algo_status[i] as usize];
+                                // amt processing
+                                if signal != &0 {
+                                    if amt <= min_notional[ticker_i] {
+                                        break;
+                                    }
+                                } else {
+                                    amt -= amt % stepsize[ticker_i];
+                                }
+                                println!("final amt: {}", amt);
+
+                                if signal != &0 {
+                                    let request_time = epoch_ms();
+                                    let request = MarketRequest {
+                                        symbol: ticker_list[ticker_i].to_string(), 
+                                        side: "BUY".to_string(), 
+                                        timestamp: request_time,
+                                        quantity: -1.0,
+                                        quoteOrderQty: amt, 
+                                    };
+                                    logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                    marketreq_tx.send(request.clone()).unwrap();
+                                    algo_status[i] = (ticker_i + 1) as i32;
+                                } else {
+                                    let request_time = epoch_ms();
+                                    let request = MarketRequest {
+                                        symbol: ticker_list[ticker_i].to_string(), 
+                                        side: "SELL".to_string(), 
+                                        timestamp: epoch_ms(),
+                                        quantity: amt,
+                                        quoteOrderQty: -1.0,
+                                    };
+                                    logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                    marketreq_tx.send(request.clone()).unwrap();
+                                    algo_status[i] = 0;
+                                }
+
+                                // check to make sure that the trade went through
+                                loop {
+                                    let req_status = reqconfirm_rx.recv().unwrap();
+                                    if req_status {
+                                        break;
                                     }
                                 }
                             }
-
-                            println!("previous_signals before: ");
-                            println!("{:?}", previous_signals);
-                            // update previous signal
-                            previous_signals[ticker_i] = signals;
-
-                            println!("previous_signals after: ");
-                            println!("{:?}", previous_signals);
                         }
+
+                        println!("previous_signals before: ");
+                        println!("{:?}", previous_signals);
+                        // update previous signal
+                        previous_signals[ticker_i] = signals;
+
+                        println!("previous_signals after: ");
+                        println!("{:?}", previous_signals);
                     }
                 }
             }
-            
-            if diagnostic {
-                let mut userdata_iter = userdata_rx.try_iter();
-                loop {
-                    let next_data = userdata_iter.next();
-                    if !next_data.is_none() {
-                        let userdata_update = next_data.unwrap();
-                        println!("userdata_update: {}", userdata_update.as_value());
-                    } else {
-                        break;
-                    }
-                }
-            }            
+                    
         }
     });
 
