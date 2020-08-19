@@ -155,12 +155,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let result = binance_interface::binance_trade_api(next_data.unwrap());
                     println!("Printing API result from market order.");
                     println!("{}", result);
-                    let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
-                    if filled_status == "FILLED".to_string() {
-                        let _ = logging_tx1.send("The order has been filled.".to_string());
-                    } else {
-                        let _ = logging_tx1.send("The order has not been filled for some reason.".to_string());
-                    }
+                    if !result["status"].as_str().is_none() {
+                        let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
+                        if filled_status == "FILLED".to_string() {
+                            let _ = logging_tx1.send("The order has been filled.".to_string());
+                        } else {
+                            let _ = logging_tx1.send("The order has not been filled for some reason.".to_string());
+                        }
+                    } 
                     let log_str = format!("trading_result: {}", result.to_string());
                     let _ = logging_tx1.send(log_str);
                     let _ = reqconfirm_tx.send(true);
@@ -179,7 +181,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         */
         // process flags
         let mut running = false;
-        let mut sellmode = false;
 
         // generate/initializeportfolio management variables
         let number_algos = 1;
@@ -231,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+
         println!("stepsize: {:?}", stepsize);
         println!("min_notional: {:?}", min_notional);
 
@@ -474,11 +476,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
 
-                } else if command == "sellmode" {
-                    sellmode = true;
-                    println!("sellmode has been set.");
-                    let _ = logging_tx.send("mode: sellmode has been activated. ");
-                }
+                } 
             }
 
             // main trade/pm logic
@@ -549,7 +547,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("action_condition: {}", action_condition);
                             println!("signal_diff_condition: {}", signal_diff_condition);
                             let _ = logging_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
-                            if action_condition || sellmode {
+                            if action_condition  {
                                 println!("signal contradicts status, taking action.");
 
                                 // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
@@ -615,30 +613,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 println!("final amt: {}", amt);
 
-                                if !sellmode {
-                                    if signal != &0 {
-                                        let request = MarketRequest {
-                                            symbol: ticker_list[ticker_i].to_string(), 
-                                            side: "BUY".to_string(), 
-                                            timestamp: epoch_ms(),
-                                            quantity: -1.0,
-                                            quote_order_qty: amt, 
-                                        };
-                                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
-                                        marketreq_tx.send(request.clone()).unwrap();
-                                        algo_status[i] = (ticker_i + 1) as i32;
-                                    } else {
-                                        let request = MarketRequest {
-                                            symbol: ticker_list[ticker_i].to_string(), 
-                                            side: "SELL".to_string(), 
-                                            timestamp: epoch_ms(),
-                                            quantity: amt,
-                                            quote_order_qty: -1.0,
-                                        };
-                                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
-                                        marketreq_tx.send(request.clone()).unwrap();
-                                        algo_status[i] = 0;
-                                    }
+                                if signal != &0 {
+                                    let request = MarketRequest {
+                                        symbol: ticker_list[ticker_i].to_string(), 
+                                        side: "BUY".to_string(), 
+                                        timestamp: epoch_ms(),
+                                        quantity: -1.0,
+                                        quote_order_qty: amt, 
+                                    };
+                                    let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                    marketreq_tx.send(request.clone()).unwrap();
+                                    algo_status[i] = (ticker_i + 1) as i32;
                                 } else {
                                     let request = MarketRequest {
                                         symbol: ticker_list[ticker_i].to_string(), 
@@ -649,6 +634,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     };
                                     let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                                     marketreq_tx.send(request.clone()).unwrap();
+                                    algo_status[i] = 0;
                                 }
 
                                 // check to make sure that the trade went through
