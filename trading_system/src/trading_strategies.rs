@@ -1,13 +1,11 @@
 
 
-use std::collections::HashMap;
-use serde_json::value::Value;
-use crate::binance_structs;
-use crate::binance_structs::{OccuredTrade};
-use std::sync::mpsc::{Sender, Receiver};
+
+use std::sync::mpsc::Sender;
+use crate::strategies::*;
 
 
-fn sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
+fn _sma_crossover(trades: &Vec<Vec<f64>>, _i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
     // NOT FUNCTIONAL
     let short_period = 576;
     let long_period = 24 * 60;
@@ -62,8 +60,8 @@ fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f
     }
     sma /= sma_lookback;
 
-    let mut signal = 0;
-    let mut log_str = String::new();
+    let signal;
+    let log_str;
     if new_ema > sma {
         log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning buy signal.", new_ema, sma);
         signal = 1;
@@ -78,6 +76,12 @@ fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f
     println!("{}", log_str);
     return (signal, vec![new_ema], log_str);
 }
+
+/*
+fn experimental_ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
+    let strategy = ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>)
+}
+*/
 
 pub fn master_strategy(
     trades: &Vec<Vec<f64>>,
@@ -96,7 +100,7 @@ pub fn master_strategy(
                 maps the ID of the algorithm to the result it returned.
     */
 
-    let mut strategies_list: Vec< 
+    let strategies_list: Vec< 
         &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>, String)> = vec![&ema_sma_crossover];
 
     let mut signals = Vec::new();
@@ -104,7 +108,7 @@ pub fn master_strategy(
     let mut i = 0;
     for strategy in strategies_list {
         let (signal, p_data_piece, logging_str) = strategy(trades, &incoming_p_data[i]);
-        logging_tx.send(format!("algo_logs: {}", logging_str));
+        let _ = logging_tx.send(format!("algo_logs: {}", logging_str));
         signals.push(signal);
         p_data.push(p_data_piece);
         i += 1;
