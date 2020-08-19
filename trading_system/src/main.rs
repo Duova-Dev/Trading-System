@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         binance_interface::live_binance_stream("btcusdt@kline_1m", &kline_tx3, &init_tx4, binance_structs::StreamType::KLine);
     });
 
-    // thread for logging
+    // thread for logging output (file/discord)
     let _logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
         let log_ts: DateTime<Local> = Local::now();
         let file_name = format!("../logs/{}.txt", log_ts);
@@ -135,6 +135,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // thread for writing discord output(human friendly)
+    let _discord_thread = thread::Builder::new().name("discord_thread".to_string()).spawn (move || {
+
+    }); 
+
+    // thread for writing file output(machine friendly)
+    let _filewrite_thread = thread::Builder::new().name("discord_thread".to_string()).spawn (move || {
+
+    }); 
+
     // thread for sending/processing market requests
     let _marketreq_thread = thread::Builder::new().name("marketreq_thread".to_string()).spawn (move || {
         loop {
@@ -147,10 +157,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{}", result);
                     let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
                     if filled_status == "FILLED".to_string() {
-                        let _ = reqconfirm_tx.send(true);
+                        let _ = logging_tx1.send("The order has been filled.".to_string());
+                    } else {
+                        let _ = logging_tx1.send("The order has not been filled for some reason.".to_string());
                     }
                     let log_str = format!("trading_result: {}", result.to_string());
                     let _ = logging_tx1.send(log_str);
+                    let _ = reqconfirm_tx.send(true);
                 } else if !next_data.is_none() && diagnostic{
                     let _ = reqconfirm_tx.send(true);
                 }
@@ -166,6 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         */
         // process flags
         let mut running = false;
+        let mut sellmode = false;
 
         // generate/initializeportfolio management variables
         let number_algos = 1;
@@ -196,10 +210,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // generate stepsize and min_notional
         let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
         let symbols_arr = exchange_info["symbols"].as_array().unwrap();
+
+        // populate USDT min_notional and stepsize with 0.01, as this info will never be used
+        stepsize[0] = 0.01;
+        min_notional[0] = 0.01;
+
         for asset in symbols_arr {
             let symbol = asset["baseAsset"].as_str().unwrap().to_string();
-            if symbols_interest.iter().position(|x| x == &symbol) != None {
+            let quote_asset = asset["quoteAsset"].as_str().unwrap().to_string();
+            if symbols_interest.iter().position(|x| x == &symbol) != None && quote_asset == "USDT".to_string() {
+                println!("symbol: {}", symbol);
                 let index = symbols_interest.iter().position(|x| x == &symbol).unwrap();
+                println!("index: {}", index);
                 for filter in asset["filters"].as_array().unwrap() {
                     if filter["filterType"].as_str().unwrap() == "LOT_SIZE" {
                         stepsize[index] = filter["stepSize"].as_str().unwrap().parse().unwrap();
@@ -209,6 +231,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        println!("stepsize: {:?}", stepsize);
+        println!("min_notional: {:?}", min_notional);
 
         // check if any values are unpopulated
         if stepsize.contains(&-1.0) {
@@ -415,14 +439,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("running: {}", running);
                     println!("diagnostic: {}", diagnostic);
                     println!("\n done with printing variables.");
-                } else if command == "discordtest" {
-                    let msg = "@everyone```fix\ntest\n```".to_string();
-                    // discord webhook write
-                    let mut message = HashMap::new();
-                    message.insert("content", msg);
-                    let webhook_url = "https://discordapp.com/api/webhooks/744067382850486372/eMESqfoTfgc1tYvkF9smKdkkyL5W1bMPn7cT_e1R-rtVXz-xfXnGO0TW5gDe7z0Lvy0U";
-                    let response = binance_interface::json_rest_req(webhook_url.to_string(), "post".to_string(), message);
-                    println!("discord webhook response: {}", response);
+                } else if command == "ordertest" {
+                    let signal = 1;
+                    if signal == 1 {
+                        let request = MarketRequest {
+                            symbol: "LTCUSDT".to_string(), 
+                            side: "BUY".to_string(), 
+                            timestamp: epoch_ms(),
+                            quantity: -1.0,
+                            quote_order_qty: 10.0, 
+                        };
+                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                        println!("requesting trade: {}", request.clone().to_string());
+                        marketreq_tx.send(request.clone()).unwrap();
+                    } else {
+                        let request = MarketRequest {
+                            symbol: "LTCUSDT".to_string(), 
+                            side: "SELL".to_string(), 
+                            timestamp: epoch_ms(),
+                            quantity: 0.0,
+                            quote_order_qty: -1.0,
+                        };
+                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                        marketreq_tx.send(request.clone()).unwrap();
+                    }
+                    println!("request sent.");
+
+                    // check to make sure that the trade went through
+                    loop {
+                        let req_status = reqconfirm_rx.recv().unwrap();
+                        if req_status {
+                            println!("req_status true came in.");
+                            break;
+                        }
+                    }
+
+                } else if command == "sellmode" {
+                    sellmode = true;
+                    println!("sellmode has been set.");
+                    let _ = logging_tx.send("mode: sellmode has been activated. ");
                 }
             }
 
@@ -450,7 +505,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // logging
                             let log_str = format!("new_ohlc: {} {} {} {} {} {}", kline.symbol, kline.open, kline.high, kline.low, kline.close, kline.quantity);
                             let _ = logging_tx.send(log_str);
-
                         }
                     } else {
                         break;
@@ -495,7 +549,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("action_condition: {}", action_condition);
                             println!("signal_diff_condition: {}", signal_diff_condition);
                             let _ = logging_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
-                            if action_condition {
+                            if action_condition || sellmode {
                                 println!("signal contradicts status, taking action.");
 
                                 // empty rx for trade confirm so only data in pipe is from the request we're about to send. 
@@ -552,6 +606,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // amt processing
                                 if signal != &0 {
                                     if amt <= min_notional[ticker_i] {
+                                        println!("amount is less than min_notional. breaking out of loop iter.");
+                                        let _ = logging_tx.send("warning: amount is less than min_notional. breaking out of loop iter.".to_string());
                                         break;
                                     }
                                 } else {
@@ -559,17 +615,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 println!("final amt: {}", amt);
 
-                                if signal != &0 {
-                                    let request = MarketRequest {
-                                        symbol: ticker_list[ticker_i].to_string(), 
-                                        side: "BUY".to_string(), 
-                                        timestamp: epoch_ms(),
-                                        quantity: -1.0,
-                                        quote_order_qty: amt, 
-                                    };
-                                    let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
-                                    marketreq_tx.send(request.clone()).unwrap();
-                                    algo_status[i] = (ticker_i + 1) as i32;
+                                if !sellmode {
+                                    if signal != &0 {
+                                        let request = MarketRequest {
+                                            symbol: ticker_list[ticker_i].to_string(), 
+                                            side: "BUY".to_string(), 
+                                            timestamp: epoch_ms(),
+                                            quantity: -1.0,
+                                            quote_order_qty: amt, 
+                                        };
+                                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                        marketreq_tx.send(request.clone()).unwrap();
+                                        algo_status[i] = (ticker_i + 1) as i32;
+                                    } else {
+                                        let request = MarketRequest {
+                                            symbol: ticker_list[ticker_i].to_string(), 
+                                            side: "SELL".to_string(), 
+                                            timestamp: epoch_ms(),
+                                            quantity: amt,
+                                            quote_order_qty: -1.0,
+                                        };
+                                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                        marketreq_tx.send(request.clone()).unwrap();
+                                        algo_status[i] = 0;
+                                    }
                                 } else {
                                     let request = MarketRequest {
                                         symbol: ticker_list[ticker_i].to_string(), 
@@ -580,7 +649,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     };
                                     let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                                     marketreq_tx.send(request.clone()).unwrap();
-                                    algo_status[i] = 0;
                                 }
 
                                 // check to make sure that the trade went through
