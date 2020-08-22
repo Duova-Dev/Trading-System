@@ -206,8 +206,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ticker = format!("{}{}", symbols_interest[i], symbols_interest[0]);
             ticker_list.push(ticker);
         }
-        let mut stepsize: Vec<f64> = vec![-1.0; symbols_interest.len()];
-        let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()];
+        let mut stepsize: Vec<f64> = vec![-1.0; symbols_interest.len()-1];
+        let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()-1];
         let mut previous_signals: Vec<Vec<i32>> = vec![vec![-2; number_algos]; ticker_list.len()];
         let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); number_algos]; ticker_list.len()];
 
@@ -220,16 +220,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
         let symbols_arr = exchange_info["symbols"].as_array().unwrap();
 
-        // populate USDT min_notional and stepsize with 0.01, as this info will never be used
-        stepsize[0] = 0.01;
-        min_notional[0] = 0.01;
-
         for asset in symbols_arr {
             let symbol = asset["baseAsset"].as_str().unwrap().to_string();
             let quote_asset = asset["quoteAsset"].as_str().unwrap().to_string();
             if symbols_interest.iter().position(|x| x == &symbol) != None && quote_asset == "USDT".to_string() {
                 println!("symbol: {}", symbol);
-                let index = symbols_interest.iter().position(|x| x == &symbol).unwrap();
+                let index = symbols_interest.iter().position(|x| x == &symbol).unwrap() - 1;
                 println!("index: {}", index);
                 for filter in asset["filters"].as_array().unwrap() {
                     if filter["filterType"].as_str().unwrap() == "LOT_SIZE" {
@@ -507,6 +503,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let append_arr = vec![kline.open, kline.high, kline.low, kline.close, kline.quantity];
                             ohlc_history[index].push(append_arr);
                             kline_valid = index as i64;
+
+                            // file logging
+                            let mut filelog: HashMap<String, String> = HashMap::new();
+                            filelog.insert("symbol".to_string(), kline.symbol.clone());
+                            filelog.insert("open".to_string(), format!("{}", kline.open));
+                            filelog.insert("high".to_string(), format!("{}", kline.high));
+                            filelog.insert("low".to_string(), format!("{}", kline.low));
+                            filelog.insert("close".to_string(), format!("{}", kline.close));
+                            filelog.insert("quantity".to_string(), format!("{}", kline.quantity));
+
+                            let _ = filelog_tx.send(filelog);
 
                             // logging
                             let log_str = format!("new_ohlc: {} {} {} {} {} {}", kline.symbol, kline.open, kline.high, kline.low, kline.close, kline.quantity);
