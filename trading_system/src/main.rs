@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if next_data.is_some() {
                 let mut data_to_write = next_data.unwrap().clone();
                 data_to_write.insert("timestamp".to_string(), format!("{}", epoch_ms()));
-                let str_write = json!(data_to_write).to_string();
+                let str_write = format!("{}\n", json!(data_to_write).to_string());
                 let write_status = log_file.write(str_write.as_bytes());
                 if write_status.is_err() {
                     let _ = humanlog_tx2.send("warning: errors with writing to log file".to_string());
