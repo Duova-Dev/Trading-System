@@ -16,6 +16,7 @@ use chrono::prelude::*;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::env;
+use serde_json::json;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,9 +46,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let init_tx3 = init_tx.clone();
     let init_tx4 = init_tx.clone();
 
-    // tx/rx for things to log
-    let (logging_tx, logging_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
-    let logging_tx1 = logging_tx.clone();
+    // tx/rx for human-readable logs
+    let (humanlog_tx, humanlog_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let humanlog_tx2 = humanlog_tx.clone();
+    let humanlog_tx3 = humanlog_tx.clone();
+
+    // tx/rx for file logs
+    let (filelog_tx, filelog_rx): (Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>) = mpsc::channel();
 
     // tx/rx for trades out
     let (marketreq_tx, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) = mpsc::channel();
@@ -74,25 +79,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         binance_interface::live_binance_stream("btcusdt@kline_1m", &kline_tx3, &init_tx4, binance_structs::StreamType::KLine);
     });
 
-    // thread for logging output (file/discord)
-    let _logging_thread = thread::Builder::new().name("logging_thread".to_string()).spawn (move || {
-        let log_ts: DateTime<Local> = Local::now();
-        let file_name = format!("../logs/{}.txt", log_ts);
-        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
+    // thread for writing discord output(human friendly)
+    let _humanlog_thread = thread::Builder::new().name("humanlog_thread".to_string()).spawn (move || {
         let mut last_timestamp = epoch_ms();
         let delta_time = 60000;
         let mut webhook_logs: VecDeque<String> = VecDeque::new();
-        let mut logging_iter = logging_rx.try_iter();
+        let mut humanlog_iter = humanlog_rx.try_iter();
+        let webhook_url = "https://discordapp.com/api/webhooks/744067382850486372/eMESqfoTfgc1tYvkF9smKdkkyL5W1bMPn7cT_e1R-rtVXz-xfXnGO0TW5gDe7z0Lvy0U";
         loop {
-            let next_data = logging_iter.next();
+            let next_data = humanlog_iter.next();
             let local_now: DateTime<Local> = Local::now();
-            if !next_data.is_none() {
+            if next_data.is_some() {
                 println!("{} ms until webhook write. ", last_timestamp as i64+delta_time as i64-epoch_ms() as i64);
                 let raw_str = next_data.unwrap();
                 webhook_logs.push_back(raw_str.clone());
-                // local log write
-                let write_str = format!("{}:: {}\n", local_now, raw_str);
-                log_file.write(write_str.as_bytes()).unwrap();
             } 
             
             // write to discord if delta_t passed
@@ -120,29 +120,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         joined = format!("```\n{}\n\n{}```", local_now, joined);
                     }
-                    println!("DIAGNOSTIC: {}", diagnostic);
-                    println!("JOINED: {}", joined);
 
                     // discord webhook write
                     let mut message = HashMap::new();
                     message.insert("content", joined);
-                    let webhook_url = "https://discordapp.com/api/webhooks/744067382850486372/eMESqfoTfgc1tYvkF9smKdkkyL5W1bMPn7cT_e1R-rtVXz-xfXnGO0TW5gDe7z0Lvy0U";
                     let response = binance_interface::json_rest_req(webhook_url.to_string(), "post".to_string(), message);
                     println!("discord webhook response: {}", response);
                 }
                 last_timestamp += delta_time;
             }
         }
-    });
-
-    // thread for writing discord output(human friendly)
-    let _discord_thread = thread::Builder::new().name("discord_thread".to_string()).spawn (move || {
-
     }); 
 
     // thread for writing file output(machine friendly)
-    let _filewrite_thread = thread::Builder::new().name("discord_thread".to_string()).spawn (move || {
-
+    // writes one json object per line. 
+    let _filelog_thread = thread::Builder::new().name("filelog_thread".to_string()).spawn (move || {
+        let log_ts: DateTime<Local> = Local::now();
+        let file_name = format!("../logs/{}.txt", log_ts);
+        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
+        let mut filelog_iter = filelog_rx.try_iter();
+        loop {
+            let next_data = filelog_iter.next();
+            if next_data.is_some() {
+                let mut data_to_write = next_data.unwrap().clone();
+                data_to_write.insert("timestamp".to_string(), format!("{}", epoch_ms()));
+                let str_write = json!(data_to_write).to_string();
+                let write_status = log_file.write(str_write.as_bytes());
+                if write_status.is_err() {
+                    let _ = humanlog_tx2.send("warning: errors with writing to log file".to_string());
+                }
+            }
+        }
     }); 
 
     // thread for sending/processing market requests
@@ -158,13 +166,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if !result["status"].as_str().is_none() {
                         let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
                         if filled_status == "FILLED".to_string() {
-                            let _ = logging_tx1.send("The order has been filled.".to_string());
+                            let _ = humanlog_tx3.send("The order has been filled.".to_string());
                         } else {
-                            let _ = logging_tx1.send("The order has not been filled for some reason.".to_string());
+                            let _ = humanlog_tx3.send("The order has not been filled for some reason.".to_string());
                         }
                     } 
                     let log_str = format!("trading_result: {}", result.to_string());
-                    let _ = logging_tx1.send(log_str);
+                    let _ = humanlog_tx3.send(log_str);
                     let _ = reqconfirm_tx.send(true);
                 } else if !next_data.is_none() && diagnostic{
                     let _ = reqconfirm_tx.send(true);
@@ -198,8 +206,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ticker = format!("{}{}", symbols_interest[i], symbols_interest[0]);
             ticker_list.push(ticker);
         }
-        let mut stepsize: Vec<f64> = vec![-1.0; symbols_interest.len()];
-        let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()];
+        let mut stepsize: Vec<f64> = vec![-1.0; symbols_interest.len()-1];
+        let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()-1];
         let mut previous_signals: Vec<Vec<i32>> = vec![vec![-2; number_algos]; ticker_list.len()];
         let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); number_algos]; ticker_list.len()];
 
@@ -212,16 +220,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
         let symbols_arr = exchange_info["symbols"].as_array().unwrap();
 
-        // populate USDT min_notional and stepsize with 0.01, as this info will never be used
-        stepsize[0] = 0.01;
-        min_notional[0] = 0.01;
-
         for asset in symbols_arr {
             let symbol = asset["baseAsset"].as_str().unwrap().to_string();
             let quote_asset = asset["quoteAsset"].as_str().unwrap().to_string();
             if symbols_interest.iter().position(|x| x == &symbol) != None && quote_asset == "USDT".to_string() {
                 println!("symbol: {}", symbol);
-                let index = symbols_interest.iter().position(|x| x == &symbol).unwrap();
+                let index = symbols_interest.iter().position(|x| x == &symbol).unwrap() - 1;
                 println!("index: {}", index);
                 for filter in asset["filters"].as_array().unwrap() {
                     if filter["filterType"].as_str().unwrap() == "LOT_SIZE" {
@@ -238,12 +242,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // check if any values are unpopulated
         if stepsize.contains(&-1.0) {
-            let _ = logging_tx.send("One or more elements of stepsize was not calculated. Panicking.".to_string());
+            let _ = humanlog_tx.send("One or more elements of stepsize was not calculated. Panicking.".to_string());
             panic!("One or more elements of stepsize was not calculated.");
         }
 
         if min_notional.contains(&-1.0) {
-            let _ = logging_tx.send("One or more elements of min_notional was not calculated. Panicking.".to_string());
+            let _ = humanlog_tx.send("One or more elements of min_notional was not calculated. Panicking.".to_string());
             panic!("One or more elements of min_notional was not calculated.");
         }
 
@@ -293,12 +297,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ohlc_history.push(ticker_ohlc);
                     }
 
-                    let _ = logging_tx.send("predata: finished fetching predata.".to_string());
+                    let _ = humanlog_tx.send("predata: finished fetching predata.".to_string());
                     println!("finished with fetching predata.");
 
                     // fetch first previous_signals
                     for ticker_i in 0..ticker_list.len() {
-                        let (signals, _p_data_temp) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &logging_tx);
+                        let (signals, _p_data_temp) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &humanlog_tx);
                         previous_signals[ticker_i] = signals;
                     }
 
@@ -378,7 +382,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ohlc_history.push(ticker_ohlc);
                     }
                     
-                    let _ = logging_tx.send("predata: finished fetching predata.".to_string());
+                    let _ = humanlog_tx.send("predata: finished fetching predata.".to_string());
                     println!("finished with fetching predata.");
                 } else if command == "fetchvars" {
                     println!("fetching variables...");
@@ -413,7 +417,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if read_success {
                         println!("done with fetching variables.");
                     } else {
-                        let _ = logging_tx.send("Error reading from variable file.".to_string());
+                        let _ = humanlog_tx.send("Error reading from variable file.".to_string());
                         println!("Something went wrong reading the variable file. Maybe the format is wrong?");
                     }
                     
@@ -451,7 +455,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             quantity: -1.0,
                             quote_order_qty: 10.0, 
                         };
-                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                        let _ = humanlog_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                         println!("requesting trade: {}", request.clone().to_string());
                         marketreq_tx.send(request.clone()).unwrap();
                     } else {
@@ -462,7 +466,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             quantity: 0.0,
                             quote_order_qty: -1.0,
                         };
-                        let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                        let _ = humanlog_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                         marketreq_tx.send(request.clone()).unwrap();
                     }
                     println!("request sent.");
@@ -500,9 +504,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ohlc_history[index].push(append_arr);
                             kline_valid = index as i64;
 
+                            // file logging
+                            let mut filelog: HashMap<String, String> = HashMap::new();
+                            filelog.insert("symbol".to_string(), kline.symbol.clone());
+                            filelog.insert("open".to_string(), format!("{}", kline.open));
+                            filelog.insert("high".to_string(), format!("{}", kline.high));
+                            filelog.insert("low".to_string(), format!("{}", kline.low));
+                            filelog.insert("close".to_string(), format!("{}", kline.close));
+                            filelog.insert("quantity".to_string(), format!("{}", kline.quantity));
+
+                            let _ = filelog_tx.send(filelog);
+
                             // logging
                             let log_str = format!("new_ohlc: {} {} {} {} {} {}", kline.symbol, kline.open, kline.high, kline.low, kline.close, kline.quantity);
-                            let _ = logging_tx.send(log_str);
+                            let _ = humanlog_tx.send(log_str);
                         }
                     } else {
                         break;
@@ -522,12 +537,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // call master strategy
                         // keep in mind, signals returned direct from the function is either 0 or 1. This is different from algo_status, where
                         // the numbers denote which currency the algo is playing.
-                        let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &logging_tx);
+                        let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &humanlog_tx);
                         p_data[ticker_i] = new_p_data;
 
                         // logging real quick
-                        let _ = logging_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
-                        let _ = logging_tx.send(format!("algo_status: {:?}", &algo_status));
+                        let _ = humanlog_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
+                        let _ = humanlog_tx.send(format!("algo_status: {:?}", &algo_status));
                         
                         // process each signal
                         for (i, signal) in signals.iter().enumerate() {
@@ -546,7 +561,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let signal_diff_condition = signal != &previous_signals[ticker_i][i];
                             println!("action_condition: {}", action_condition);
                             println!("signal_diff_condition: {}", signal_diff_condition);
-                            let _ = logging_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
+                            let _ = humanlog_tx.send(format!("conditions: action_condition: {} || signal_diff_condition: {}", action_condition, signal_diff_condition));
                             if action_condition  {
                                 println!("signal contradicts status, taking action.");
 
@@ -581,8 +596,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 println!("listing calculated balances: {:?}", balances);
                                 
                                 // log balance
-                                let _ = logging_tx.send(format!("tickers: {:?}", symbols_interest));
-                                let _ = logging_tx.send(format!("calculated_balance: {:?}", balances));
+                                let _ = humanlog_tx.send(format!("tickers: {:?}", symbols_interest));
+                                let _ = humanlog_tx.send(format!("calculated_balance: {:?}", balances));
 
                                 // calculate relative split
                                 let mut total_percent = 0.0;
@@ -594,7 +609,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let relative_split = capital_split[i] / total_percent;
 
                                 if balances[algo_status[i] as usize] == -1.0 {
-                                    let _ = logging_tx.send("warning: invalid balance. continuing to next signal in loop.".to_string());
+                                    let _ = humanlog_tx.send("warning: invalid balance. continuing to next signal in loop.".to_string());
                                     continue;
                                 }
 
@@ -605,7 +620,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if signal != &0 {
                                     if amt <= min_notional[ticker_i] {
                                         println!("amount is less than min_notional. breaking out of loop iter.");
-                                        let _ = logging_tx.send("warning: amount is less than min_notional. breaking out of loop iter.".to_string());
+                                        let _ = humanlog_tx.send("warning: amount is less than min_notional. breaking out of loop iter.".to_string());
                                         break;
                                     }
                                 } else {
@@ -621,7 +636,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         quantity: -1.0,
                                         quote_order_qty: amt, 
                                     };
-                                    let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                    let _ = humanlog_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                                     marketreq_tx.send(request.clone()).unwrap();
                                     algo_status[i] = (ticker_i + 1) as i32;
                                 } else {
@@ -632,7 +647,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         quantity: amt,
                                         quote_order_qty: -1.0,
                                     };
-                                    let _ = logging_tx.send(format!("requesting trade: {}", request.clone().to_string()));
+                                    let _ = humanlog_tx.send(format!("requesting trade: {}", request.clone().to_string()));
                                     marketreq_tx.send(request.clone()).unwrap();
                                     algo_status[i] = 0;
                                 }
