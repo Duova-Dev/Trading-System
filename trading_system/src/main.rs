@@ -186,11 +186,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         /*
             Following code initializes variables.
-        */
-        // process flags
-        let mut running = false;
+        */        
 
-        // generate/initializeportfolio management variables
+        // generate/initialize portfolio management variables
         let number_algos = 1;
         let mut ohlc_history: Vec<Vec<Vec<f64>>> = Vec::new();
         let mut algo_status: Vec<i32> = vec![0; number_algos];
@@ -210,6 +208,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()-1];
         let mut previous_signals: Vec<Vec<i32>> = vec![vec![-2; number_algos]; ticker_list.len()];
         let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); number_algos]; ticker_list.len()];
+
+        // process flags
+        let mut running = false;
+        let mut minute_counter = 0;
 
         // settings(numerical only)
         let mut settings = HashMap::new();
@@ -524,12 +526,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 
+                // same condition as above, but this segment of code
                 if kline_valid != -1 {
                     println!("kline is valid. running trading logic.");
                     let ticker_i = kline_valid as usize;
                     // slice to relevant part
                     let limit_len = (settings["max_lookback_ms"] / settings["ohlc_period"]) as usize;
-
                     println!("On ticker: {}", ticker_list[ticker_i]);
                     if ohlc_history[ticker_i].len() >= limit_len {
                         ohlc_history[ticker_i] = ohlc_history[ticker_i][ohlc_history[ticker_i].len()-limit_len..].to_vec();
@@ -573,29 +575,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
 
-                                // calculate balances
-                                // fetch account information and calculate relative split to put into play
-                                let mut balances = vec![-1.0; symbols_interest.len()];
-                                // calculate balance for each symbol in symbols_interest
-                                let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-                                let mut j = 0;
-                                loop {
-                                    if account_info["balances"][j].is_null() {
-                                        break;
-                                    } else {
-                                        let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
-                                        let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
-                                        for k in 0..symbols_interest.len() {
-                                            if balance_ticker == symbols_interest[k] {
-                                                balances[k] = balance;
-                                            }
-                                        }
-                                    }
-                                    j += 1;
-                                }
-                                println!("listing calculated balances: {:?}", balances);
+                                let balances = binance_interface::fetch_balances(symbols_interest.to_vec());
                                 
-                                // log balance
+                                // log balances
                                 let _ = humanlog_tx.send(format!("tickers: {:?}", symbols_interest));
                                 let _ = humanlog_tx.send(format!("calculated_balance: {:?}", balances));
 
@@ -670,6 +652,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("previous_signals after: ");
                         println!("{:?}", previous_signals);
                     }
+
+                    // minutely updates
+                    // this code is designed to run every minute. it accomplishes this by running 1 time every n OHLCs come in, where n is the number of tickers.
+                    // because each ticker sends 1 OHLC every minute. 
+                    minute_counter += 1;
+                    if minute_counter >= ticker_list.len() {
+                        // send balance update to log file
+                        let mut balances_hm: HashMap<String, String> = HashMap::new();
+                        let balances = binance_interface::fetch_balances(symbols_interest.to_vec());
+                        for i in 0..symbols_interest.len() {
+                            balances_hm.insert(symbols_interest[i].clone(), balances[i].to_string());
+                        }
+                        let _ = filelog_tx.send(balances_hm);
+                        minute_counter = 0;
+                    } 
                 }
             }
         }

@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use sha2::Sha256;
 use hmac::{Hmac, Mac, NewMac};
 use crate::binance_structs;
+use crate::helpers::epoch_ms;
 
 fn sign_hmac256(key: &str, message: &str) -> String {
     // returns hmac256 signature with hex
@@ -114,6 +115,32 @@ pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Vec<Ve
         vec_to_return.push(vec_to_push);
     }
     return vec_to_return;
+}
+
+pub fn fetch_balances(symbols_interest: Vec<String>) -> Vec<f64> {
+    /* 
+        Input a list of tickers(e.g. ETHUSDT). Return vector will be same length, and display quantity of each crypto in balance.
+    */
+    // fetch account information and calculate relative split to put into play
+    let mut balances = vec![-1.0; symbols_interest.len()];
+    // calculate balance for each symbol in symbols_interest
+    let account_info = binance_rest_api("get_accountinfo", epoch_ms(), "");
+    let mut j = 0;
+    loop {
+        if account_info["balances"][j].is_null() {
+            break;
+        } else {
+            let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
+            let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
+            for k in 0..symbols_interest.len() {
+                if balance_ticker == symbols_interest[k] {
+                    balances[k] = balance;
+                }
+            }
+        }
+        j += 1;
+    }
+    return balances;
 }
 
 pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Value {
