@@ -99,6 +99,9 @@ pub fn new_listenkey(timestamp: u64) -> String {
 }
 
 pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Vec<Vec<f64>> {
+    /*
+        Returns a vector of OHLCs(as structured in variables.txt) for the specificed symbol, end time, and lookback time. 
+    */
     let symbol: &str = symbol_str;
     let lookback_ms = lookback * 60 * 1000;
     let message = format!("symbol={}&interval=1m&startTime={}&endTime={}", symbol, end_time-lookback_ms, end_time);
@@ -111,7 +114,7 @@ pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Vec<Ve
         let low : f64 = period[3].as_str().unwrap().parse().unwrap();
         let close : f64 = period[4].as_str().unwrap().parse().unwrap();
         let volume : f64 = period[5].as_str().unwrap().parse().unwrap();
-        let vec_to_push = vec![open, high, low, close, volume];
+        let vec_to_push: Vec<f64> = vec![-1f64, open, high, low, close, volume, -1f64, -1f64, -1f64, -1f64];
         vec_to_return.push(vec_to_push);
     }
     return vec_to_return;
@@ -227,6 +230,7 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
     loop {
         let msg = socket.read_message().expect("Error reading message");
         let msg_string = format!("{}", msg);
+        // CRASH: next line crashed on 9/4 with an unwrap on a nil value
         if msg_string.chars().next().unwrap() != '{' {
             continue;
         }

@@ -1,6 +1,9 @@
 
 This is an unofficial manual for running Jane. 
 
+Diagnostic mode: 
+'cargo run diagnostic' instead of 'cargo run' to run in diagnostic mode. The diagnostic mode should be confirmed in the system's output.
+
 _Starting sequence_
 0. choose from a or b. 
 0a. run command 'selltousdt'

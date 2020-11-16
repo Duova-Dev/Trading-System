@@ -3,4 +3,15 @@ Text document explaining some of the variables within the program.
 ohlc_history: a 3D vector of type f64. 
 
     This is the vector holding the necessary OHLC data for all the algorithms to run. 
-    The shape is a, b, 5, where a = number of tickers to keep track of and b = number of minutes of lookback(assuming each row of ohlc is a minute long).
+    The shape is a, b, 10, where a = number of tickers to keep track of and b = number of minutes of lookback(assuming each row of ohlc is a minute long).
+    OHLC structure(Marked with - are used fields. The rest are padded with -1s for now.): 
+        open time 
+        open price -
+        high proce -
+        low price -
+        close price - 
+        volume -
+        quote asset volume 
+        number of trades 
+        taker buy base asset volume
+        taker buy quote asset volume

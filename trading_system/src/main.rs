@@ -17,6 +17,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::env;
 use serde_json::json;
+use strategies::TradingStrategy;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -208,6 +209,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut min_notional: Vec<f64> = vec![-1.0; symbols_interest.len()-1];
         let mut previous_signals: Vec<Vec<i32>> = vec![vec![-2; number_algos]; ticker_list.len()];
         let mut p_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); number_algos]; ticker_list.len()];
+        let mut strategy_objs: Vec<Vec<Box<dyn TradingStrategy>>> = vec![];
+        
+        // instantiate empty strategy objects for each ticker
+        for i in 0 .. ticker_list.len() {
+            strategy_objs.push(trading_strategies::master_setup());
+        }
 
         // process flags
         let mut running = false;
@@ -221,7 +228,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // generate stepsize and min_notional
         let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
         let symbols_arr = exchange_info["symbols"].as_array().unwrap();
-
         for asset in symbols_arr {
             let symbol = asset["baseAsset"].as_str().unwrap().to_string();
             let quote_asset = asset["quoteAsset"].as_str().unwrap().to_string();
@@ -238,16 +244,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-
         println!("stepsize: {:?}", stepsize);
         println!("min_notional: {:?}", min_notional);
-
         // check if any values are unpopulated
         if stepsize.contains(&-1.0) {
             let _ = humanlog_tx.send("One or more elements of stepsize was not calculated. Panicking.".to_string());
             panic!("One or more elements of stepsize was not calculated.");
         }
-
         if min_notional.contains(&-1.0) {
             let _ = humanlog_tx.send("One or more elements of min_notional was not calculated. Panicking.".to_string());
             panic!("One or more elements of min_notional was not calculated.");
@@ -278,11 +281,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if command == "stop" {
                     running = false;
                 } else if command == "autostart" {
-                    // COPYPASTE OF FETCHING PREDATA
+                    // fetches predata(historical ohlc over the last lookback period)
                     println!("fetching predata...");
                     let api_limit = 500;
                     let end_window = epoch_ms();
-                    
                     for ticker in ticker_list.iter() {
                         println!("fetching predata for {}...", ticker);
                         let start_window = end_window - settings["max_lookback_ms"];
@@ -296,16 +298,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ticker_ohlc = swap.clone();
                             end_chunk -= api_limit * 60 * 1000;
                         }
-                        ohlc_history.push(ticker_ohlc);
+                        ohlc_history.push(ticker_ohlc.clone());
                     }
-
                     let _ = humanlog_tx.send("predata: finished fetching predata.".to_string());
                     println!("finished with fetching predata.");
 
-                    // fetch first previous_signals
-                    for ticker_i in 0..ticker_list.len() {
-                        let (signals, _p_data_temp) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &humanlog_tx);
-                        previous_signals[ticker_i] = signals;
+                    // loops through predata to get strategies up to speed
+                    for i in 0 .. ohlc_history.len() {
+                        for j in 0 .. ohlc_history[i].len() {
+                            trading_strategies::master_strategy(&ohlc_history[i][j], &mut strategy_objs[i]);
+                        }
                     }
 
                     running = true;
@@ -527,6 +529,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 
                 // same condition as above, but this segment of code
+                // this segment runs algos and generates actions
                 if kline_valid != -1 {
                     println!("kline is valid. running trading logic.");
                     let ticker_i = kline_valid as usize;
@@ -539,8 +542,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // call master strategy
                         // keep in mind, signals returned direct from the function is either 0 or 1. This is different from algo_status, where
                         // the numbers denote which currency the algo is playing.
-                        let (signals, new_p_data) = trading_strategies::master_strategy(&ohlc_history[ticker_i], &p_data[ticker_i], &humanlog_tx);
-                        p_data[ticker_i] = new_p_data;
+                        let signals = trading_strategies::master_strategy(&ohlc_history[ticker_i][ohlc_history[ticker_i].len()-1], &mut strategy_objs[ticker_i]);
+                        
+                        // log supplemental data
+                        let supp_logs = trading_strategies::grab_supp_logs(&mut strategy_objs[ticker_i]);
+                        for log in supp_logs {
+                            let _ = humanlog_tx.send(log);
+                        }
+
+                        /*
+                        // write signal data to file
+                        for (i, map) in vec_logs.iter().enumerate() {
+                            map.insert("strategy_num".to_string(), i.to_string());
+                            map.insert("currency".to_string(), ticker_list[ticker_i]);
+                            filelog_tx.send(*map);
+                        }
+                        */
 
                         // logging real quick
                         let _ = humanlog_tx.send(format!("update: on ticker {}", ticker_list[ticker_i]));
@@ -714,12 +731,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if command == "quit" || command == "exit" {
             break;
         }
-        
+    
         // send command to action thread
         cmd_tx.send(command.to_string()).unwrap();
-        
     }
-
 
     Ok(())
 }

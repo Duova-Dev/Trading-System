@@ -3,9 +3,12 @@
 
 use std::sync::mpsc::Sender;
 use crate::strategies::*;
+use std::collections::HashMap;
+use crate::strategies::ema_sma_crossover::EMASMACrossover;
+use std::any::type_name;
 
-
-fn _sma_crossover(trades: &Vec<Vec<f64>>, _i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
+/*
+fn _sma_crossover(trades: &Vec<Vec<f64>>, _i_p_data: &Vec<f64>) -> (i32, Vec<f64>, HashMap<String, String>) {
     // NOT FUNCTIONAL
     let short_period = 576;
     let long_period = 24 * 60;
@@ -36,7 +39,7 @@ fn _sma_crossover(trades: &Vec<Vec<f64>>, _i_p_data: &Vec<f64>) -> (i32, Vec<f64
     }
 }
 
-fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
+fn legacy_ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, HashMap<String, String>) {
     let ema_lookback = 12f64 * 60f64;
     let sma_lookback = 24f64 * 60f64;
     let smoothing = 2f64;
@@ -61,33 +64,107 @@ fn ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f
     sma /= sma_lookback;
 
     let signal;
-    let log_str;
+    let mut log_map;
     if new_ema > sma {
-        log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning buy signal.", new_ema, sma);
+        log_map = HashMap::new();
+        log_map.insert("ema".to_string(), new_ema.to_string());
+        log_map.insert("sma".to_string(), sma.to_string());
+        log_map.insert("signal".to_string(), 1.to_string());
         signal = 1;
     } else if new_ema < sma {
-        log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning sell signal.", new_ema, sma);
+        log_map = HashMap::new();
+        log_map.insert("ema".to_string(), new_ema.to_string());
+        log_map.insert("sma".to_string(), sma.to_string());
+        log_map.insert("signal".to_string(), 0.to_string());
         signal = 0;
     } else {
-        log_str = format!("EMA SMA Crossover: ema: {}, sma: {}. returning neutral signal.", new_ema, sma);
+        log_map = HashMap::new();
+        log_map.insert("ema".to_string(), new_ema.to_string());
+        log_map.insert("sma".to_string(), sma.to_string());
+        log_map.insert("signal".to_string(), 0.to_string());
         signal = 0;
     }
 
-    println!("{}", log_str);
-    return (signal, vec![new_ema], log_str);
-}
-
-/*
-fn experimental_ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>) -> (i32, Vec<f64>, String) {
-    let strategy = ema_sma_crossover(trades: &Vec<Vec<f64>>, i_p_data: &Vec<f64>)
+    return (signal, vec![new_ema], log_map);
 }
 */
 
+fn type_of<T>(_: T) -> &'static str {
+    type_name::<T>()
+}
+
+pub fn master_setup() -> Vec<Box<dyn TradingStrategy>> {
+    /*
+        A function to instantiate the trading strategy objects. Every object returned in the vector implements TradingStrategy, and each iteration is 
+        expected to be run with master_strategy. 
+        
+        Arguments: 
+            NA
+        
+        Returns: 
+            Vec<Box<dyn TradingStrategy>>: a vector of the trading strategy objects, surrounded in a box. 
+    */
+    let mut strategy_objs: Vec<Box<dyn TradingStrategy>> = Vec::new();
+    // strategy 0 - ema sma crossover @ [12 hrs, 24 hrs]
+    strategy_objs.push(Box::new(EMASMACrossover::new(vec![12f64*60f64, 24f64*60f64])));
+
+    return strategy_objs;
+}
+
+pub fn master_strategy(ohlc: &Vec<f64>, strategy_objs: &mut Vec<Box<dyn TradingStrategy>>) -> Vec<i32> {
+    /*
+        A function to actually run the strategies. The strategies instantiated with master_setup is passed here. This function is expected to be run 
+        at every timestep. 
+
+        Arguments: 
+            ohlc: &Vec<f64> - The OHLC vector, structure specified in variables.txt 
+            strategy_objects: &mut Vec<Box<dyn TradingStrategy>> - TradingStrategy objects
+        
+        Returns: 
+            Vec<i32> - a vector of length n(number of strategies) that contains the long or sell/short signals. 
+    */
+    let mut signals_vec: Vec<i32> = Vec::new(); 
+    let strategy_n = strategy_objs.len();
+    for i in 0 .. strategy_n {
+        let strategy = &mut strategy_objs[i];
+        let signal = strategy.run(ohlc) as i32;
+        signals_vec.push(signal);
+    }
+    return signals_vec;
+}
+
+pub fn grab_supp_logs(strategy_objs: &mut Vec<Box<dyn TradingStrategy>>) -> Vec<String> {
+    /*
+        A function to generate the logs for all of the strategies. This data includes the numbers, such as the actual EMA and SMA values. 
+        It's done by mapping the supplemental labels of each strategy object to the latest timestep of all the supplemental data
+        Arguments: 
+            ohlc: &Vec<f64> - The OHLC vector, structure specified in variables.txt 
+            strategy_objects: &mut Vec<Box<dyn TradingStrategy>> - TradingStrategy objects
+        
+        Returns: 
+            Vec<String> - Vector of log messages
+    */
+    let mut final_logs: Vec<String> = Vec::new();
+    for i in 0 ..strategy_objs.len() {
+        let strategy = &mut strategy_objs[i];
+        let labels = strategy.get_supplemental_labels();
+        let data = strategy.get_supplemental_data();
+        let name = type_of(&strategy);
+        let mut log = format!("{}:", name);
+        for j in 0 .. labels.len() {
+            let piece = data[j][data[j].len()-1];
+            log = [log, format!("{}-{}", labels[j], piece)].join(" ");
+        }
+        final_logs.push(log);
+    }
+    return final_logs;
+}
+
+/*
 pub fn master_strategy(
     trades: &Vec<Vec<f64>>,
     incoming_p_data: &Vec<Vec<f64>>,
-    logging_tx: &Sender<String>
-) -> (Vec<i32>, Vec<Vec<f64>>) {
+) -> (Vec<i32>, Vec<Vec<f64>>, Vec<HashMap<String, String>>) {
     /*
         One function to call all the strategies that are needed.
         Parameters:
@@ -101,18 +178,25 @@ pub fn master_strategy(
     */
 
     let strategies_list: Vec< 
-        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>, String)> = vec![&ema_sma_crossover];
+        &dyn Fn(&Vec<Vec<f64>>, &Vec<f64>) -> (i32, Vec<f64>, HashMap<String, String>)> = vec![&ema_sma_crossover];
 
     let mut signals = Vec::new();
     let mut p_data = Vec::new();
+    let mut logs = Vec::new();
     let mut i = 0;
     for strategy in strategies_list {
-        let (signal, p_data_piece, logging_str) = strategy(trades, &incoming_p_data[i]);
-        let _ = logging_tx.send(format!("algo_logs: {}", logging_str));
+        let (signal, p_data_piece, log_map) = strategy(trades, &incoming_p_data[i]);
+        logs.push(log_map);
         signals.push(signal);
         p_data.push(p_data_piece);
         i += 1;
     }
 
-    return (signals, p_data);
-}
+    // experimental split
+    // 0: ema_sma_crossover
+    let settings_0 = vec![12f64*60f64, 24f64*60f64];
+    let strategy_0 = EMASMACrossover::new(settings_0);
+
+    
+    return (signals, p_data, logs);
+*/
