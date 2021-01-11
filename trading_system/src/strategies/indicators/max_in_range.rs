@@ -91,7 +91,7 @@ impl NextI for MaxmimumInRange {
             self.max_index = self.slow_index;
         }
 
-        if self.vec[self.max_index] == -INFINITY{
+        if self.vec[self.max_index] == -INFINITY {
             return 0f64;
         }
         return self.vec[self.max_index];

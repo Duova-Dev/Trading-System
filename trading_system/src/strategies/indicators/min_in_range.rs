@@ -91,7 +91,7 @@ impl NextI for MinimumInRange {
             self.min_index = self.slow_index;
         }
 
-        if self.vec[self.min_index] == INFINITY{
+        if self.vec[self.min_index] == INFINITY {
             return 0f64;
         }
         return self.vec[self.min_index];

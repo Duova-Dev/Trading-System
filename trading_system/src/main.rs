@@ -1,26 +1,24 @@
 mod binance_interface;
-mod trading_strategies;
 mod binance_structs;
 mod helpers;
 mod strategies;
+mod trading_strategies;
 
-use std::sync::mpsc;
-use std::sync::mpsc::{Sender, Receiver};
-use std::thread;
-use std::io::Write;
+use binance_structs::{MarketRequest, ReceivedData};
+use chrono::prelude::*;
+use helpers::epoch_ms;
+use serde_json::json;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use binance_structs::{ReceivedData, MarketRequest};
-use helpers::{epoch_ms};
-use chrono::prelude::*;
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader};
 use std::env;
-use serde_json::json;
-
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::io::{BufRead, BufReader};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     // global vars
     let mut diagnostic = false;
 
@@ -30,14 +28,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() != 0 {
         // diagnostic flag
         if args.contains(&"diagnostic".to_string()) {
+            println!("DIAGNOSTIC MODE IS ON.");
             diagnostic = true;
+        } else{
+            println!("LIVE MODE IS ON. DIAGNOSTIC MODE IS OFF.");
         }
-    }
-
-    if diagnostic {
-        println!("DIAGNOSTIC MODE IS ON.");
-    } else {
-        println!("LIVE MODE IS ON. DIAGNOSTIC MODE IS OFF.");
     }
 
     // tx/rx for init
@@ -52,10 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let humanlog_tx3 = humanlog_tx1.clone();
 
     // tx/rx for file logs
-    let (filelog_tx1, filelog_rx): (Sender<HashMap<String, String>>, Receiver<HashMap<String, String>>) = mpsc::channel();
+    let (filelog_tx1, filelog_rx): (
+        Sender<HashMap<String, String>>,
+        Receiver<HashMap<String, String>>,
+    ) = mpsc::channel();
 
     // tx/rx for trades out
-    let (marketreq_tx1, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) = mpsc::channel();
+    let (marketreq_tx1, marketreq_rx): (Sender<MarketRequest>, Receiver<MarketRequest>) =
+        mpsc::channel();
 
     // tx/rx for trades confirm
     let (reqconfirm_tx1, reqconfirm_rx): (Sender<bool>, Receiver<bool>) = mpsc::channel();
@@ -69,15 +68,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (cmd_tx1, cmd_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
 
     // thread(s) to pull live webstream data from binance
-    let _klines_thread1 = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("ethusdt@kline_1m", &kline_tx1, &init_tx1, binance_structs::StreamType::KLine);
-    });
-    let _klines_thread2 = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("ltcusdt@kline_1m", &kline_tx2, &init_tx3, binance_structs::StreamType::KLine);
-    });
-    let _klines_thread3 = thread::Builder::new().name("klines_data_thread".to_string()).spawn (move || {
-        binance_interface::live_binance_stream("btcusdt@kline_1m", &kline_tx3, &init_tx4, binance_structs::StreamType::KLine);
-    });
+    let _klines_thread1 = thread::Builder::new()
+        .name("klines_data_thread".to_string())
+        .spawn(move || {
+            binance_interface::live_binance_stream(
+                "ethusdt@kline_1m",
+                &kline_tx1,
+                &init_tx1,
+                binance_structs::StreamType::KLine,
+            );
+        });
+    let _klines_thread2 = thread::Builder::new()
+        .name("klines_data_thread".to_string())
+        .spawn(move || {
+            binance_interface::live_binance_stream(
+                "ltcusdt@kline_1m",
+                &kline_tx2,
+                &init_tx3,
+                binance_structs::StreamType::KLine,
+            );
+        });
+    let _klines_thread3 = thread::Builder::new()
+        .name("klines_data_thread".to_string())
+        .spawn(move || {
+            binance_interface::live_binance_stream(
+                "btcusdt@kline_1m",
+                &kline_tx3,
+                &init_tx4,
+                binance_structs::StreamType::KLine,
+            );
+        });
 
     // thread for writing discord output(human friendly)
     let _humanlog_thread = thread::Builder::new().name("humanlog_thread".to_string()).spawn (move || {
@@ -101,11 +121,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("webhook_logs: {:?}", webhook_logs);
                     let mut joined = String::new();
                     let mut total_length = 0;
+                    
                     loop {
                         if webhook_logs.len() == 0 {
                             break;
                         }
-
                         if webhook_logs[0].chars().count() + total_length >= 1500 {
                             break;
                         } else {
@@ -127,35 +147,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let response = binance_interface::json_rest_req(webhook_url.to_string(), "post".to_string(), message);
                     println!("discord webhook response: {}", response);
                 }
+
                 last_timestamp += delta_time;
             }
         }
-    }); 
+    });
 
     // thread for writing file output(machine friendly)
-    // writes one json object per line. 
-    let _filelog_thread = thread::Builder::new().name("filelog_thread".to_string()).spawn (move || {
-        let log_ts: DateTime<Local> = Local::now();
-        let file_name = format!("../logs/{}.txt", log_ts);
-        let mut log_file = OpenOptions::new().append(true).create(true).open(file_name).unwrap();
-        let mut filelog_iter = filelog_rx.try_iter();
-        loop {
-            let next_data = filelog_iter.next();
-            if next_data.is_some() {
-                let mut data_to_write = next_data.unwrap().clone();
-                data_to_write.insert("timestamp".to_string(), format!("{}", epoch_ms()));
-                let str_write = format!("{}\n", json!(data_to_write).to_string());
-                let write_status = log_file.write(str_write.as_bytes());
-                if write_status.is_err() {
-                    let _ = humanlog_tx2.send("warning: errors with writing to log file".to_string());
+    // writes one json object per line.
+    let _filelog_thread = thread::Builder::new()
+        .name("filelog_thread".to_string())
+        .spawn(move || {
+            let log_ts: DateTime<Local> = Local::now();
+            let file_name = format!("../logs/{}.txt", log_ts);
+            let mut log_file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(file_name)
+                .unwrap();
+            let mut filelog_iter = filelog_rx.try_iter();
+            loop {
+                let next_data = filelog_iter.next();
+                if next_data.is_some() {
+                    let mut data_to_write = next_data.unwrap().clone();
+                    data_to_write.insert("timestamp".to_string(), format!("{}", epoch_ms()));
+                    let str_write = format!("{}\n", json!(data_to_write).to_string());
+                    let write_status = log_file.write(str_write.as_bytes());
+                    if write_status.is_err() {
+                        let _ = humanlog_tx2
+                            .send("warning: errors with writing to log file".to_string());
+                    }
                 }
             }
-        }
-    }); 
+        });
 
     // thread for sending/processing market requests
-    let _marketreq_thread = thread::Builder::new().name("marketreq_thread".to_string()).spawn (move || {
-        loop {
+    let _marketreq_thread = thread::Builder::new()
+        .name("marketreq_thread".to_string())
+        .spawn(move || loop {
             let mut marketreq_iter = marketreq_rx.try_iter();
             loop {
                 let next_data = marketreq_iter.next();
@@ -164,29 +193,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Printing API result from market order.");
                     println!("{}", result);
                     if !result["status"].as_str().is_none() {
-                        let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
+                        let filled_status: String =
+                            result["status"].as_str().unwrap().parse().unwrap();
                         if filled_status == "FILLED".to_string() {
                             let _ = humanlog_tx3.send("The order has been filled.".to_string());
                         } else {
-                            let _ = humanlog_tx3.send("The order has not been filled for some reason.".to_string());
+                            let _ = humanlog_tx3
+                                .send("The order has not been filled for some reason.".to_string());
                         }
-                    } 
+                    }
                     let log_str = format!("trading_result: {}", result.to_string());
                     let _ = humanlog_tx3.send(log_str);
                     let _ = reqconfirm_tx1.send(true);
-                } else if !next_data.is_none() && diagnostic{
+                } else if !next_data.is_none() && diagnostic {
                     let _ = reqconfirm_tx1.send(true);
                 }
             }
-        }
-    });
-    
+        });
+
     // action thread(main trading system)
     let _action_thread = thread::Builder::new().name("action_data_thread".to_string()).spawn(move || {
 
-        /*
-            Following code initializes variables.
-        */
         // process flags
         let mut running = false;
 
@@ -615,7 +642,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                 // if signal is 0(back to USDT), calculate amount to sell.
                                 // if signal is positive(into a currency), calculate USDT amount then multiply by price
-                                let mut amt = relative_split * balances[algo_status[i] as usize];
+                                 let mut amt = relative_split * balances[algo_status[i] as usize];
                                 // amt processing
                                 if signal != &0 {
                                     if amt <= min_notional[ticker_i] {
@@ -686,25 +713,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
+
     println!("Initialization finished!");
-    
+
     // shell loop
     loop {
-
         // get command
         print!("Jane >>>");
         std::io::stdout().flush().unwrap();
-        
+
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
 
-        
         // split into parts and generate argument vector
         let mut parts = input.trim().split_whitespace();
 
         let command = match parts.next() {
             Some(command) => command,
-            None => "no command found"
+            None => "no command found",
         };
         if command == "no command found" {
             continue;
@@ -717,12 +743,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if command == "quit" || command == "exit" {
             break;
         }
-        
+
         // send command to action thread
         cmd_tx1.send(command.to_string()).unwrap();
-        
     }
-
 
     Ok(())
 }

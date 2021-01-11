@@ -1,6 +1,5 @@
-
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::convert::TryFrom;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn epoch_ms() -> u64 {
     let now_instant = SystemTime::now();

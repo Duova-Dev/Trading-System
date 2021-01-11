@@ -1,12 +1,12 @@
-use serde::{Serialize, Deserialize};
-use serde_json::{Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // data structures
 
 pub enum ReceivedData {
     Trade(OccuredTrade),
     KLine(KLineMinute),
-    Value(Value)
+    Value(Value),
 }
 
 impl ReceivedData {
@@ -37,8 +37,8 @@ impl ReceivedData {
 
 #[derive(Clone)]
 pub struct KLineMinute {
-    pub start_time: u64, 
-    pub end_time: u64, 
+    pub start_time: u64,
+    pub end_time: u64,
     pub symbol: String,
     pub open: f64,
     pub high: f64,
@@ -60,37 +60,45 @@ pub struct OccuredTrade {
     pub seller_id: u64,
     pub trade_time: u64,
     pub buyermm: bool,
-    pub ignore: bool
+    pub ignore: bool,
 }
 
 pub enum StreamType {
-    Trade, 
+    Trade,
     Depth,
     KLine,
-    UserData
+    UserData,
 }
 
 #[derive(Clone)]
 pub struct MarketRequest {
     /*
-        Struct for a market order. 
-        quantity or quoteOrderQty must be -1.0. One and only one must be a valid value. 
+        Struct for a market order.
+        quantity or quoteOrderQty must be -1.0. One and only one must be a valid value.
     */
     pub symbol: String,
     pub side: String,
     pub timestamp: u64,
-    pub quantity: f64, 
+    pub quantity: f64,
     pub quote_order_qty: f64,
 }
 
 impl MarketRequest {
     pub fn to_string(self) -> String {
         if self.quantity == -1.0 && self.quote_order_qty != -1.0 {
-            return format!("symbol={}&side={}&timestamp={}&quoteOrderQty={:.8}&type=MARKET", self.symbol, self.side, self.timestamp, self.quote_order_qty);
+            return format!(
+                "symbol={}&side={}&timestamp={}&quoteOrderQty={:.8}&type=MARKET",
+                self.symbol, self.side, self.timestamp, self.quote_order_qty
+            );
         } else if self.quote_order_qty == -1.0 && self.quantity != -1.0 {
-            return format!("symbol={}&side={}&timestamp={}&quantity={:.8}&type=MARKET", self.symbol, self.side, self.timestamp, self.quantity);
+            return format!(
+                "symbol={}&side={}&timestamp={}&quantity={:.8}&type=MARKET",
+                self.symbol, self.side, self.timestamp, self.quantity
+            );
         } else {
-            panic!("MarketRequest format is wrong. Quantity and QuoteOrderQty are both/neither -1.0.");
+            panic!(
+                "MarketRequest format is wrong. Quantity and QuoteOrderQty are both/neither -1.0."
+            );
         }
     }
 }
@@ -98,8 +106,8 @@ impl MarketRequest {
 // helper functions
 pub fn deserialize_kline(raw_kline: Value) -> KLineMinute {
     KLineMinute {
-        start_time: raw_kline["k"]["t"].as_u64().unwrap(), 
-        end_time: raw_kline["k"]["T"].as_u64().unwrap(), 
+        start_time: raw_kline["k"]["t"].as_u64().unwrap(),
+        end_time: raw_kline["k"]["T"].as_u64().unwrap(),
         symbol: raw_kline["k"]["s"].as_str().unwrap().parse().unwrap(),
         open: raw_kline["k"]["o"].as_str().unwrap().parse().unwrap(),
         high: raw_kline["k"]["h"].as_str().unwrap().parse().unwrap(),
@@ -107,7 +115,7 @@ pub fn deserialize_kline(raw_kline: Value) -> KLineMinute {
         close: raw_kline["k"]["c"].as_str().unwrap().parse().unwrap(),
         quantity: raw_kline["k"]["v"].as_str().unwrap().parse().unwrap(),
         num_trades: raw_kline["k"]["n"].as_u64().unwrap(),
-        closed: raw_kline["k"]["x"].as_bool().unwrap()
+        closed: raw_kline["k"]["x"].as_bool().unwrap(),
     }
 }
 

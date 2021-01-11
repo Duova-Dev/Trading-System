@@ -31,7 +31,7 @@ impl TradingStrategy for EMASMAADX {
         let curr_adx = self.adx_indicator.next(ohlc[4]);
 
         let mut current_signal = 0;
-        if curr_short_ema > curr_long_sma && curr_adx > 25f64{
+        if curr_short_ema > curr_long_sma && curr_adx > 25f64 {
             current_signal = 1;
         } else if curr_short_ema < curr_long_sma {
             current_signal = -1;

@@ -1,8 +1,8 @@
-pub mod indicators;
-pub mod sma_crossover;
-pub mod ema_sma_crossover;
 pub mod adx;
 pub mod ema_sma_adx;
+pub mod ema_sma_crossover;
+pub mod indicators;
+pub mod sma_crossover;
 
 pub trait TradingStrategy {
     fn new(strategy_settings: Vec<f64>) -> Self;
