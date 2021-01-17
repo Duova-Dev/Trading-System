@@ -14,7 +14,6 @@ impl TemplateStrategy{
             strategy_settings,
             supplemental_data: vec![],
             supplemental_labels: vec![], 
-            strategy_name
         }
     }
 }
@@ -34,9 +33,5 @@ impl TradingStrategy for TemplateStrategy {
 
     fn get_supplemental_labels(&self) -> &Vec<String> {
         &self.supplemental_labels
-    }
-
-    fn get_name(&self) -> &String {
-        &self.strategy_name
     }
 }
