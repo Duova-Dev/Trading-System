@@ -1,8 +1,8 @@
 use serde::{Serialize, Deserialize};
 use serde_json::{Value};
+use std::fmt;
 
 // data structures
-
 pub enum ReceivedData {
     Trade(OccuredTrade),
     KLine(KLineMinute),
@@ -126,4 +126,22 @@ pub fn deserialize_trade(received_trade: Value) -> OccuredTrade {
         buyermm: received_trade["m"].as_bool().unwrap(),
         ignore: received_trade["M"].as_bool().unwrap(),
     };
+}
+
+
+// Error types
+pub struct APIError;
+
+// Implement std::fmt::Display for AppError
+impl fmt::Display for APIError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Something happened while interacting with an external API.") // user-facing output
+    }
+}
+
+// Implement std::fmt::Debug for AppError
+impl fmt::Debug for APIError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Erorr while interfacing with external API: {{ file: {}, line: {} }}", file!(), line!()) // programmer-facing output
+    }
 }

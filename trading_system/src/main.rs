@@ -161,20 +161,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             loop {
                 let next_data = marketreq_iter.next();
                 if !next_data.is_none() && !diagnostic {
-                    let result = binance_interface::binance_trade_api(next_data.unwrap());
-                    println!("Printing API result from market order.");
-                    println!("{}", result);
-                    if !result["status"].as_str().is_none() {
-                        let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
-                        if filled_status == "FILLED".to_string() {
-                            let _ = humanlog_tx3.send("The order has been filled.".to_string());
-                        } else {
-                            let _ = humanlog_tx3.send("The order has not been filled for some reason.".to_string());
-                        }
-                    } 
-                    let log_str = format!("trading_result: {}", result.to_string());
-                    let _ = humanlog_tx3.send(log_str);
-                    let _ = reqconfirm_tx.send(true);
+                    let raw_result = binance_interface::binance_trade_api(next_data.unwrap());
+                    if raw_result.is_ok() {
+                        let result = raw_result.unwrap();
+                        println!("Printing API result from market order.");
+                        println!("{}", result);
+                        if !result["status"].as_str().is_none() {
+                            let filled_status: String = result["status"].as_str().unwrap().parse().unwrap();
+                            if filled_status == "FILLED".to_string() {
+                                let _ = humanlog_tx3.send("The order has been filled.".to_string());
+                            } else {
+                                let _ = humanlog_tx3.send("The order has not been filled for some reason.".to_string());
+                            }
+                        } 
+                        let log_str = format!("trading_result: {}", result.to_string());
+                        let _ = humanlog_tx3.send(log_str);
+                        let _ = reqconfirm_tx.send(true);
+                    } else {
+                        println!("There has been an error with the market request. It most likely wasn't fulfilled.");
+                        let _ = humanlog_tx3.send("The order has errored out. It most likely wasn't fulfilled.".to_string());
+                    }
                 } else if !next_data.is_none() && diagnostic{
                     let _ = reqconfirm_tx.send(true);
                 }
@@ -226,7 +232,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         settings.insert("max_lookback_ms", settings["ohlc_period"] * 24 * 60);
 
         // generate stepsize and min_notional
-        let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
+        let raw_exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
+        let exchange_info; 
+        if raw_exchange_info.is_ok() {
+            exchange_info = raw_exchange_info.unwrap();
+        } else {
+            panic!("Exchange info could not be retrieved.");
+        }
         let symbols_arr = exchange_info["symbols"].as_array().unwrap();
         for asset in symbols_arr {
             let symbol = asset["baseAsset"].as_str().unwrap().to_string();
@@ -291,12 +303,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mut end_chunk = end_window;
                         let mut ticker_ohlc = Vec::new();
                         while end_chunk >= start_window {
-                            let mut new_ohlcs = binance_interface::fetch_klines(&ticker, end_chunk, api_limit);
-                            let mut swap = Vec::new();
-                            swap.append(&mut new_ohlcs);
-                            swap.append(&mut ticker_ohlc);
-                            ticker_ohlc = swap.clone();
-                            end_chunk -= api_limit * 60 * 1000;
+                            let mut raw_new_ohlcs = binance_interface::fetch_klines(&ticker, end_chunk, api_limit);
+                            if raw_new_ohlcs.is_ok() {
+                                let mut new_ohlcs = raw_new_ohlcs.unwrap();
+                                let mut swap = Vec::new();
+                                swap.append(&mut new_ohlcs);
+                                swap.append(&mut ticker_ohlc);
+                                ticker_ohlc = swap.clone();
+                                end_chunk -= api_limit * 60 * 1000;
+                            } else {
+                                panic!("Something went wrong with the API call to fetch data. Autostart has failed.");
+                            }
                         }
                         ohlc_history.push(ticker_ohlc.clone());
                     }
@@ -314,61 +331,82 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else if command == "newlistenkey" {
                     binance_interface::binance_rest_api("new_listenkey", time_now, "");
                 } else if command == "displayaccountinfo" {
-                    println!("{}", binance_interface::binance_rest_api("get_accountinfo", time_now, "").to_string());
+                    println!("{}", binance_interface::binance_rest_api("get_accountinfo", time_now, "").unwrap().to_string());
                 } else if command == "testping" {
                     binance_interface::binance_rest_api("test_ping", time_now, "");
                 } else if command == "exchangeinfo" {
-                    let exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
-                    println!("exchange_info: {}", exchange_info);
+                    let r_exchange_info = binance_interface::binance_rest_api("exchange_info", epoch_ms(), "");
+                    if r_exchange_info.is_ok() {
+                        println!("exchange_info: {}", r_exchange_info.unwrap());
+                    } else {
+                        println!("Something has gone wrong with the API. Exchange info could not be retrieved."); 
+                    }
                 } else if command == "testtime" {
                     binance_interface::binance_rest_api("test_time", time_now, "");
                 } else if command == "selltousdt" {
                     // WARNING: untested
-
-                    // check account info and sells every asset to USDT
-                    let account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
-                    println!("account_info: {}", account_info);
                     
-                    let mut i = 0;
-                    loop {
-                        if account_info["balances"][i].is_null() {
-                            break;
-                        } else {
-                            println!("{}", account_info["balances"][i]);
-                            let balance: f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
-                            let ticker_sell: String = account_info["balances"][i]["asset"].as_str().unwrap().to_string();
-                            let symbol = format!("{}USDT", ticker_sell);
-                            if symbol != "USDTUSDT" && balance != 0.0 {
-                                let mut amt_to_sell:f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
-                                println!("original amt_to_sell: {}", amt_to_sell);
-                                amt_to_sell = amt_to_sell - (amt_to_sell % 0.00001);
-                                println!("final amt_to_sell: {}", amt_to_sell);
-                                println!("Attempting to sell {} amount of {}...", amt_to_sell, account_info["balances"][i]["asset"]);
-                                let request = MarketRequest {
-                                    symbol: symbol, 
-                                    side: "SELL".to_string(), 
-                                    timestamp: time_now,
-                                    quantity: amt_to_sell,
-                                    quote_order_qty: -1.0,
-                                };
-                                let response = binance_interface::binance_trade_api(request);
-                                if let Some(field) = response.get("status") {
-                                    if field == "filled" {
-                                        println!("Order was filled.");
+                    let mut failed = false;
+                    // check account info and sells every asset to USDT
+                    let raw_account_info = binance_interface::binance_rest_api("get_accountinfo", time_now, "");
+
+                    if raw_account_info.is_ok() {
+                        let account_info = raw_account_info.unwrap();
+                        println!("account_info: {}", account_info);
+
+                        let mut i = 0;
+                        loop {
+                            if account_info["balances"][i].is_null() {
+                                break;
+                            } else {
+                                println!("{}", account_info["balances"][i]);
+                                let balance: f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                                let ticker_sell: String = account_info["balances"][i]["asset"].as_str().unwrap().to_string();
+                                let symbol = format!("{}USDT", ticker_sell);
+                                if symbol != "USDTUSDT" && balance != 0.0 {
+                                    let mut amt_to_sell:f64 = account_info["balances"][i]["free"].as_str().unwrap().parse().unwrap();
+                                    println!("original amt_to_sell: {}", amt_to_sell);
+                                    amt_to_sell = amt_to_sell - (amt_to_sell % 0.00001);
+                                    println!("final amt_to_sell: {}", amt_to_sell);
+                                    println!("Attempting to sell {} amount of {}...", amt_to_sell, account_info["balances"][i]["asset"]);
+                                    let request = MarketRequest {
+                                        symbol: symbol, 
+                                        side: "SELL".to_string(), 
+                                        timestamp: time_now,
+                                        quantity: amt_to_sell,
+                                        quote_order_qty: -1.0,
+                                    };
+                                    let raw_response = binance_interface::binance_trade_api(request);
+                                    if raw_response.is_ok() {
+                                        let response = raw_response.unwrap();
+                                        if let Some(field) = response.get("status") {
+                                            if field == "filled" {
+                                                println!("Order was filled.");
+                                            } else {
+                                                println!("Order was not filled. Status response: {}", field);
+                                            }
+                                        } else {
+                                            println!("Something went wrong. Response was: {}", response);
+                                        }
                                     } else {
-                                        println!("Order was not filled. Status response: {}", field);
+                                        failed = true;
+                                        break;
                                     }
-                                } else {
-                                    println!("Something went wrong. Response was: {}", response);
                                 }
                             }
+                            i += 1;
                         }
-                        i += 1;
+                    } else {
+                        println!("selltousdt failed because of an API error. Please try again.");
+                    }
+                    if failed {
+                        println!("selltousdt failed because of an API error. Please try again.");
                     }
                 } else if command == "fetchpredata" {
                     println!("fetching predata...");
                     let api_limit = 500;
                     let end_window = epoch_ms();
+                    let mut failed = false;
                     
                     for ticker in ticker_list.iter() {
                         println!("fetching predata for {}...", ticker);
@@ -376,14 +414,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mut end_chunk = end_window;
                         let mut ticker_ohlc = Vec::new();
                         while end_chunk >= start_window {
-                            let mut new_ohlcs = binance_interface::fetch_klines(&ticker, end_chunk, api_limit);
+                            let mut raw_new_ohlcs = binance_interface::fetch_klines(&ticker, end_chunk, api_limit);
+                            if raw_new_ohlcs.is_err() {
+                                failed = true;
+                                break;
+                            }
+                            let mut new_ohlcs = raw_new_ohlcs.unwrap();
                             let mut swap = Vec::new();
                             swap.append(&mut new_ohlcs);
                             swap.append(&mut ticker_ohlc);
                             ticker_ohlc = swap.clone();
                             end_chunk -= api_limit * 60 * 1000;
                         }
+                        if failed { 
+                            break;
+                        }
                         ohlc_history.push(ticker_ohlc);
+                    }
+                    if failed {
+                        panic!("Fetching predata has gone wrong. Something happened with the API call.");
                     }
                     
                     let _ = humanlog_tx.send("predata: finished fetching predata.".to_string());
@@ -489,6 +538,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // main trade/pm logic
             if running {
+                let mut success = true;
+
                 // receive market data(trading only for now) and append to past list of trades
                 let mut kline_iter = kline_rx.try_iter();
                 let mut kline_valid = -1;
@@ -530,7 +581,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 
                 // same condition as above, but this segment of code
                 // this segment runs algos and generates actions
-                if kline_valid != -1 {
+                if success && kline_valid != -1 {
                     println!("kline is valid. running trading logic.");
                     let ticker_i = kline_valid as usize;
                     // slice to relevant part
@@ -592,7 +643,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
 
-                                let balances = binance_interface::fetch_balances(symbols_interest.to_vec());
+                                let raw_balances = binance_interface::fetch_balances(symbols_interest.to_vec());
+                                if raw_balances.is_err() {
+                                    success = false;
+                                    break;
+                                }
+                                let balances = raw_balances.unwrap();
                                 
                                 // log balances
                                 let _ = humanlog_tx.send(format!("tickers: {:?}", symbols_interest));
@@ -661,6 +717,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
 
+                        if !success {
+                            break;
+                        }
+
                         println!("previous_signals before: ");
                         println!("{:?}", previous_signals);
                         // update previous signal
@@ -677,13 +737,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if minute_counter >= ticker_list.len() {
                         // send balance update to log file
                         let mut balances_hm: HashMap<String, String> = HashMap::new();
-                        let balances = binance_interface::fetch_balances(symbols_interest.to_vec());
-                        for i in 0..symbols_interest.len() {
-                            balances_hm.insert(symbols_interest[i].clone(), balances[i].to_string());
+                        let raw_balances = binance_interface::fetch_balances(symbols_interest.to_vec());
+                        if raw_balances.is_ok() {
+                            let balances = raw_balances.unwrap();
+                            for i in 0..symbols_interest.len() {
+                                balances_hm.insert(symbols_interest[i].clone(), balances[i].to_string());
+                            }
+                            let _ = filelog_tx.send(balances_hm);
+                            minute_counter = 0;
+                        } else {
+                            success = false;
+                            break;
                         }
-                        let _ = filelog_tx.send(balances_hm);
-                        minute_counter = 0;
                     } 
+                }
+
+                if !success {
+                    println!("Something went wrong with this loop. Things may not have been executed.");
+                    let _ = humanlog_tx.send("@everyone Something went wrong with the trading loop. Things may not have been executed.".to_string());
                 }
             }
         }

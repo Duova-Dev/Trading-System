@@ -34,23 +34,27 @@ fn sign_hmac256(key: &str, message: &str) -> String {
     return signature_str;
 }
 
-fn binance_rest_req(api_key: &str, url: String, req_type: String) -> String { 
+fn binance_rest_req(api_key: &str, url: String, req_type: String) -> Result<reqwest::blocking::Response, reqwest::Error> { 
+    /*
+        Sends a fully formulated response to the Binance API. 
+        Returns a reqwest Response, to be matched in the calling code. 
+    */
+
     let client = reqwest::blocking::Client::new();
-    let mut response_str = String::new();
     println!("requesting url: {}", url);
+    // TODO: error handle for when binance api errors out
     if req_type == "get" {
-        response_str = client.get(&url)
+        return client.get(&url)
             .header("X-MBX-APIKEY", api_key)
-            .send().unwrap()
-            .text().unwrap();
+            .send();
     } else if req_type == "post" {
-        response_str = client.post(&url)
+        return client.post(&url)
             .header("X-MBX-APIKEY", api_key)
-            .body("")
-            .send().unwrap()
-            .text().unwrap();
+            .body("")  
+            .send();
+    } else {
+        panic!("req_type was neither get nor post. check whether the calling function is implemented correctly.");
     }
-    return response_str;
 }
 
 pub fn json_rest_req(url: String, req_type: String, msg: HashMap<&str, String>) -> String {
@@ -75,7 +79,7 @@ pub fn json_rest_req(url: String, req_type: String, msg: HashMap<&str, String>) 
     return response_str;
 }
 
-pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
+pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Result<Value, binance_structs::APIError> {
     // find keys
     let mut key_file = File::open("../v0_1_0.key").unwrap();
     let mut contents = String::new();
@@ -89,16 +93,25 @@ pub fn binance_trade_api(request: binance_structs::MarketRequest) -> Value{
     let generated_hmac = sign_hmac256(secret_key, &message);
     let final_url = format!("{}{}&signature={}", endpoint, message, generated_hmac);
     let raw_response_str = binance_rest_req(api_key, final_url, "post".to_string());
-    return serde_json::from_str(&raw_response_str).unwrap();
+    let mut response_str = String::new();
+    match raw_response_str {
+        Ok(response) => response_str = response.text().unwrap(),
+        Err(error) => return Err(binance_structs::APIError)
+    }
+    return Ok(serde_json::from_str(&response_str).unwrap());
 }
 
 // wrapper functions for convenient access to certain api elements
-pub fn new_listenkey(timestamp: u64) -> String {
+pub fn new_listenkey(timestamp: u64) -> Result<String, binance_structs::APIError> {
     let listen_key = binance_rest_api("new_listenkey", timestamp, "");
-    return listen_key["listenKey"].as_str().unwrap().to_string();
+    if listen_key.is_ok() {
+        return Ok(listen_key.unwrap()["listenKey"].as_str().unwrap().to_string());
+    } else {
+        return Err(binance_structs::APIError);
+    }
 }
 
-pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Vec<Vec<f64>> {
+pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Result<Vec<Vec<f64>>, binance_structs::APIError> {
     /*
         Returns a vector of OHLCs(as structured in variables.txt) for the specificed symbol, end time, and lookback time. 
     */
@@ -106,47 +119,56 @@ pub fn fetch_klines(symbol_str: &String, end_time: u64, lookback: u64) -> Vec<Ve
     let lookback_ms = lookback * 60 * 1000;
     let message = format!("symbol={}&interval=1m&startTime={}&endTime={}", symbol, end_time-lookback_ms, end_time);
     let mut vec_to_return: Vec<Vec<f64>> = Vec::new();
-    // let message = format!("symbol={}&interval=1m", symbol);
-    let klines_value = binance_rest_api("historicalkline", end_time, &message).as_array().unwrap().clone();
-    for period in klines_value {
-        let open : f64 = period[1].as_str().unwrap().parse().unwrap();
-        let high : f64 = period[2].as_str().unwrap().parse().unwrap();
-        let low : f64 = period[3].as_str().unwrap().parse().unwrap();
-        let close : f64 = period[4].as_str().unwrap().parse().unwrap();
-        let volume : f64 = period[5].as_str().unwrap().parse().unwrap();
-        let vec_to_push: Vec<f64> = vec![-1f64, open, high, low, close, volume, -1f64, -1f64, -1f64, -1f64];
-        vec_to_return.push(vec_to_push);
+    let raw_klines_value = binance_rest_api("historicalkline", end_time, &message);
+    if raw_klines_value.is_ok() {
+        let klines_value = binance_rest_api("historicalkline", end_time, &message).unwrap().as_array().unwrap().clone();
+        for period in klines_value {
+            let open : f64 = period[1].as_str().unwrap().parse().unwrap();
+            let high : f64 = period[2].as_str().unwrap().parse().unwrap();
+            let low : f64 = period[3].as_str().unwrap().parse().unwrap();
+            let close : f64 = period[4].as_str().unwrap().parse().unwrap();
+            let volume : f64 = period[5].as_str().unwrap().parse().unwrap();
+            let vec_to_push: Vec<f64> = vec![-1f64, open, high, low, close, volume, -1f64, -1f64, -1f64, -1f64];
+            vec_to_return.push(vec_to_push);
+        }
+        return Ok(vec_to_return);
+    } else {
+        return Err(binance_structs::APIError);
     }
-    return vec_to_return;
 }
 
-pub fn fetch_balances(symbols_interest: Vec<String>) -> Vec<f64> {
+pub fn fetch_balances(symbols_interest: Vec<String>) -> Result<Vec<f64>, binance_structs::APIError> {
     /* 
         Input a list of tickers(e.g. ETHUSDT). Return vector will be same length, and display quantity of each crypto in balance.
     */
     // fetch account information and calculate relative split to put into play
     let mut balances = vec![-1.0; symbols_interest.len()];
     // calculate balance for each symbol in symbols_interest
-    let account_info = binance_rest_api("get_accountinfo", epoch_ms(), "");
-    let mut j = 0;
-    loop {
-        if account_info["balances"][j].is_null() {
-            break;
-        } else {
-            let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
-            let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
-            for k in 0..symbols_interest.len() {
-                if balance_ticker == symbols_interest[k] {
-                    balances[k] = balance;
+    let raw_account_info = binance_rest_api("get_accountinfo", epoch_ms(), "");
+    if raw_account_info.is_ok() {
+        let account_info = raw_account_info.unwrap();
+        let mut j = 0;
+        loop {
+            if account_info["balances"][j].is_null() {
+                break;
+            } else {
+                let balance: f64 = account_info["balances"][j]["free"].as_str().unwrap().parse().unwrap();
+                let balance_ticker: String = account_info["balances"][j]["asset"].as_str().unwrap().to_string();
+                for k in 0..symbols_interest.len() {
+                    if balance_ticker == symbols_interest[k] {
+                        balances[k] = balance;
+                    }
                 }
             }
+            j += 1;
         }
-        j += 1;
+        return Ok(balances);
+    } else {
+        return Err(binance_structs::APIError);
     }
-    return balances;
 }
 
-pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Value {
+pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Result<Value, binance_structs::APIError> {
     /*
         Requests certain things fron the Binance REST API based on predefined settings.
         This function returns the raw Serde Value, so if you want to parse the output, write a wrapper function.
@@ -201,8 +223,13 @@ pub fn binance_rest_api(interface: &str, timestamp: u64, arguments: &str) -> Val
     }
 
     let raw_response_str = binance_rest_req(api_key, final_url, req_type);
+    let mut response_str = String::new();
+    match raw_response_str {
+        Ok(response) => response_str = response.text().unwrap(),
+        Err(error) => return Err(binance_structs::APIError)
+    }
     // println!("raw_response_str: {}", raw_response_str);
-    return serde_json::from_str(&raw_response_str).unwrap();
+    return Ok(serde_json::from_str(&response_str).unwrap());
 }
 
 pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::ReceivedData>, init_tx: &Sender<bool>, stream_type: binance_structs::StreamType) {
