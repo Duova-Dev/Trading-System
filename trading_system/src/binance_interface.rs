@@ -255,7 +255,12 @@ pub fn live_binance_stream(stream_name: &str, data_tx: &Sender<binance_structs::
     drop(init_tx);
 
     loop {
-        let msg = socket.read_message().expect("Error reading message");
+        let raw_msg = socket.read_message();
+        if raw_msg.is_err() {
+            println!("raw_msg is an error. attempting to continue the loop.");
+            continue;
+        }
+        let msg = raw_msg.unwrap();
         let msg_string = format!("{}", msg);
         // CRASH: next line crashed on 9/4 with an unwrap on a nil value
         if msg_string.chars().next().unwrap() != '{' {
